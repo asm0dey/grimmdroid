@@ -86,7 +86,14 @@ class AccountRepository(
 
     suspend fun switchTo(id: Long) = settings.setCurrentAccountId(id)
 
-    // shortcut: only the row and its tokens go here; Task 15 orchestrates catalogue and downloaded-file deletion (deleteDownloads).
+    /** Forgets the tokens but keeps the account, its catalogue and downloads; the "Sign in" banner offers re-login. */
+    suspend fun signOut(id: Long) =
+        tokenLock.withLock {
+            dao.setTokens(id, null, signedOut = true)
+            tokenCache.remove(id)
+        }
+
+    // Only the row and its tokens go here; SettingsViewModel orchestrates catalogue, file and folder cleanup.
     @Suppress("UNUSED_PARAMETER")
     suspend fun remove(
         id: Long,

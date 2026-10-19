@@ -55,17 +55,24 @@ class FolderExport(
         accountId: Long,
         uri: Uri,
     ) {
-        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-        context.contentResolver.takePersistableUriPermission(uri, flags)
+        context.contentResolver.takePersistableUriPermission(uri, GRANT_FLAGS)
         val old = settings.folderUri(accountId).first()
-        if (old != null && old != uri) {
-            try {
-                context.contentResolver.releasePersistableUriPermission(old, flags)
-            } catch (_: SecurityException) {
-                // Already gone.
-            }
-        }
+        if (old != null && old != uri) release(old)
         settings.setFolderUri(accountId, uri)
+    }
+
+    /** Releases the account's folder grant and forgets the folder; for account removal. */
+    suspend fun forget(accountId: Long) {
+        settings.folderUri(accountId).first()?.let(::release)
+        settings.setFolderUri(accountId, null)
+    }
+
+    private fun release(uri: Uri) {
+        try {
+            context.contentResolver.releasePersistableUriPermission(uri, GRANT_FLAGS)
+        } catch (_: SecurityException) {
+            // Already gone.
+        }
     }
 
     /** Copies [file] into the account's folder; a failed copy or create throws IOException and leaves no partial file. */
@@ -92,3 +99,5 @@ class FolderExport(
         }
     }
 }
+
+private const val GRANT_FLAGS = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION

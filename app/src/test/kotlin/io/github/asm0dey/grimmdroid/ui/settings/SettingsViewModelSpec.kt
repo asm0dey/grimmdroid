@@ -1,0 +1,164 @@
+/*
+ * Grimmdroid - Android client for the Grimmory book server
+ * Copyright (C) 2026 Grimmdroid contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+package io.github.asm0dey.grimmdroid.ui.settings
+
+import android.app.Application
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.work.testing.WorkManagerTestInitHelper
+import io.github.asm0dey.grimmdroid.account.AccountRepository
+import io.github.asm0dey.grimmdroid.account.TokenCipher
+import io.github.asm0dey.grimmdroid.api.AppUserInfo
+import io.github.asm0dey.grimmdroid.api.Tokens
+import io.github.asm0dey.grimmdroid.catalog.BookEntity
+import io.github.asm0dey.grimmdroid.catalog.CatalogDb
+import io.github.asm0dey.grimmdroid.catalog.DownloadEntity
+import io.github.asm0dey.grimmdroid.catalog.DownloadState
+import io.github.asm0dey.grimmdroid.download.DownloadRepository
+import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
+import io.github.asm0dey.grimmdroid.export.FolderExport
+import io.github.asm0dey.grimmdroid.settings.SettingsStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+import java.nio.file.Files
+
+private object XorCipher : TokenCipher {
+    override fun encrypt(plain: ByteArray) = plain.map { (it.toInt() xor 0x5A).toByte() }.toByteArray()
+
+    override fun decrypt(cipher: ByteArray) = encrypt(cipher)
+}
+
+private const val BOOK = 12L
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(AndroidJUnit4::class)
+class SettingsViewModelSpec {
+    private lateinit var db: CatalogDb
+    private lateinit var dir: File
+    private lateinit var scope: CoroutineScope
+    private lateinit var settings: SettingsStore
+    private lateinit var accounts: AccountRepository
+    private lateinit var vm: SettingsViewModel
+    private val dropped = mutableListOf<Long>()
+    private var coverClears = 0
+
+    @Before
+    fun setUp() {
+        val ctx = ApplicationProvider.getApplicationContext<Application>()
+        // viewModelScope would otherwise post to the main looper, which runBlocking holds.
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        WorkManagerTestInitHelper.initializeTestWorkManager(ctx)
+        db = Room.inMemoryDatabaseBuilder(ctx, CatalogDb::class.java).allowMainThreadQueries().build()
+        dir = Files.createTempDirectory("settings").toFile()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        settings = SettingsStore(PreferenceDataStoreFactory.create(scope = scope) { File(dir, "settings.preferences_pb") })
+        accounts = AccountRepository(db.accountDao(), XorCipher, settings)
+        vm =
+            SettingsViewModel(
+                ctx,
+                accounts,
+                settings,
+                db.catalogDao(),
+                DownloadRepository(db.catalogDao(), { error("no network in this test") }, dir),
+                FolderExport(ctx, settings),
+                dropClient = { dropped += it },
+                coverCacheSize = { 0L },
+                clearCoverCache = { coverClears++ },
+            )
+    }
+
+    @After
+    fun tearDown() {
+        db.close()
+        scope.cancel()
+        dir.deleteRecursively()
+        Dispatchers.resetMain()
+    }
+
+    /** An account with one downloaded book on disk; returns the account id and the file. */
+    private suspend fun accountWithBook(): Pair<Long, File> {
+        val id = accounts.addOrUpdate("https://a", "u", "1.0", AppUserInfo(canDownload = true), Tokens("t", "r"))
+        val dao = db.catalogDao()
+        dao.upsertBooks(
+            listOf(BookEntity(id, BOOK, "T", "A", null, null, null, null, null, null, null, "EPUB", null, null, null, false, 1)),
+        )
+        val file = File(dir, "books/$id/$BOOK/t.epub").apply { parentFile!!.mkdirs() }
+        file.writeText("book")
+        dao.upsertDownload(DownloadEntity(id, BOOK, 0, "t.epub", file.path, 4, DownloadState.DONE, 1f))
+        return id to file
+    }
+
+    @Test
+    fun choosingSaveToFolderPersistsIt() =
+        runBlocking {
+            vm.setAfterDownload(AfterDownloadAction.SAVE_TO_FOLDER)
+            withTimeout(5_000) { settings.afterDownload.first { it == AfterDownloadAction.SAVE_TO_FOLDER } }
+            Unit
+        }
+
+    @Test
+    fun signOutWithDeleteRemovesAccountRowsFilesAndTokens() =
+        runBlocking {
+            val (id, file) = accountWithBook()
+            vm.signOutNow(id, removeAccount = true)
+            assertNull(accounts.account(id))
+            assertNull(accounts.tokenSource(id).current())
+            assertFalse(file.exists())
+            assertFalse(File(dir, "books/$id").exists())
+            assertNull(db.catalogDao().download(id, BOOK).first())
+            assertNull(db.catalogDao().book(id, BOOK).first())
+            assertEquals(listOf(id), dropped)
+            assertEquals(1, coverClears)
+            assertNull(settings.currentAccountId.first())
+        }
+
+    @Test
+    fun signOutWithKeepLeavesFilesAndCatalogue() =
+        runBlocking {
+            val (id, file) = accountWithBook()
+            vm.signOutNow(id, removeAccount = false)
+            val account = checkNotNull(accounts.account(id))
+            assertTrue(account.signedOut)
+            assertNull(account.encryptedTokens)
+            assertNull(accounts.tokenSource(id).current())
+            assertTrue(file.exists())
+            assertNotNull(db.catalogDao().download(id, BOOK).first())
+            assertNotNull(db.catalogDao().book(id, BOOK).first())
+            assertEquals(0, coverClears)
+        }
+}

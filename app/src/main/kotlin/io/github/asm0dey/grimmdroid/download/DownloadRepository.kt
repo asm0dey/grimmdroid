@@ -186,6 +186,17 @@ class DownloadRepository(
         dao.deleteBookDownloads(accountId, bookId)
     }
 
+    /** Stops every queued or running download of [accountId]; with [deleteFiles] also removes all its files (not its rows). */
+    suspend fun stopAll(
+        context: Context,
+        accountId: Long,
+        deleteFiles: Boolean,
+    ) {
+        WorkManager.getInstance(context).cancelAllWorkByTag(accountTag(accountId))
+        active.filterKeys { it.first == accountId }.values.forEach { it.cancelAndJoin() }
+        if (deleteFiles) withContext(Dispatchers.IO) { File(filesDir, "books/$accountId").deleteRecursively() }
+    }
+
     fun enqueue(
         context: Context,
         accountId: Long,
@@ -206,6 +217,7 @@ class DownloadRepository(
             OneTimeWorkRequestBuilder<DownloadWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setInputData(input)
+                .addTag(accountTag(accountId))
                 .build(),
         )
     }
@@ -225,6 +237,8 @@ class DownloadRepository(
     ) {
         WorkManager.getInstance(context).cancelUniqueWork(workName(accountId, bookId))
     }
+
+    private fun accountTag(accountId: Long) = "dl-account-$accountId"
 
     private fun workName(
         accountId: Long,

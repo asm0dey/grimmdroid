@@ -67,13 +67,17 @@ class AppContainer(
     /** Carries no tokens: server probe, login and the OIDC identity provider. */
     val httpClient: HttpClient = httpClient()
 
-    // shortcut: a removed account's client stays cached until process death (ids are never reused); Task 15 may drop it.
     private val authed = ConcurrentHashMap<Long, HttpClient>()
 
     fun authedClient(account: AccountEntity): HttpClient =
         authed.getOrPut(account.id) {
             authedClient(account.baseUrl, accounts.tokenSource(account.id))
         }
+
+    /** Drops and closes [accountId]'s cached client, so a sign-out or removal leaves no tokens in a live client. */
+    fun dropAuthedClient(accountId: Long) {
+        authed.remove(accountId)?.close()
+    }
 
     fun api(account: AccountEntity) = GrimmoryApi(authedClient(account))
 
@@ -108,7 +112,7 @@ class AppContainer(
                     .build()
             }.build()
 
-    /** Drops every cached cover (memory and disk); for account removal. */
+    /** Drops every cached cover (memory and disk); for account removal. Blocks: call it off the main thread. */
     fun clearCoverCache() {
         imageLoader.memoryCache?.clear()
         imageLoader.diskCache?.clear()

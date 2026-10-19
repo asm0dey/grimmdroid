@@ -25,9 +25,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,7 +47,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -81,6 +78,8 @@ import io.github.asm0dey.grimmdroid.ui.library.ShelfScope
 import io.github.asm0dey.grimmdroid.ui.onboarding.OnboardingRoute
 import io.github.asm0dey.grimmdroid.ui.search.SearchScreen
 import io.github.asm0dey.grimmdroid.ui.search.SearchViewModel
+import io.github.asm0dey.grimmdroid.ui.settings.SettingsScreen
+import io.github.asm0dey.grimmdroid.ui.settings.SettingsViewModel
 import io.github.asm0dey.grimmdroid.ui.shelves.ShelvesScreen
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -122,8 +121,10 @@ fun AppNav(container: AppContainer) {
     LaunchedEffect(destination) { Tab.entries.firstOrNull { destination?.hasRoute(it.route::class) == true }?.let { tab = it } }
     val inShell = destination != null && !destination.hasRoute(Onboarding::class)
     val onLibrary = destination?.hasRoute(Library::class) == true
-    // Library, Home and Details draw their own header under the banners instead of the app bar.
-    val ownHeader = onLibrary || destination?.hasRoute(Home::class) == true || destination?.hasRoute(Details::class) == true
+    // Library, Home, Details and Settings draw their own header under the banners instead of the app bar.
+    val ownHeader =
+        onLibrary || destination?.hasRoute(Home::class) == true || destination?.hasRoute(Details::class) == true ||
+            destination?.hasRoute(Settings::class) == true
     val onSearch = destination?.hasRoute(Search::class) == true
     val sync = current?.let { syncStates[it.id] }
     val lastSynced = current?.lastSyncedAt
@@ -139,6 +140,12 @@ fun AppNav(container: AppContainer) {
     val snackbar = remember { SnackbarHostState() }
     val defaultPassword = stringResource(R.string.default_password)
 
+    // Removing the last account leaves nothing to show: start over at Onboarding (the start destination is frozen).
+    LaunchedEffect(loaded.isEmpty()) {
+        if (loaded.isEmpty() && nav.currentDestination?.hasRoute(Onboarding::class) == false) {
+            nav.navigate(Onboarding) { popUpTo(nav.graph.id) { inclusive = true } }
+        }
+    }
     RequestNotificationsOnce(inShell)
     ResetTabsOnAccountSwitch(nav, current?.id)
     // An SSO redirect can arrive while Onboarding isn't showing (process death during "Add server"); its ViewModel finishes it.
@@ -204,7 +211,6 @@ fun AppNav(container: AppContainer) {
             }
         },
     ) { padding ->
-        // Placeholder bodies; Task 15 fills these in.
         NavHost(nav, startDestination = start, modifier = Modifier.padding(padding)) {
             composable<Onboarding> {
                 OnboardingRoute(container) { isDefault ->
@@ -259,7 +265,10 @@ fun AppNav(container: AppContainer) {
                 val vm: SearchViewModel = viewModel(factory = SearchViewModel.factory(container))
                 SearchScreen(vm, baseUrl, openBook) { nav.popBackStack() }
             }
-            composable<Settings> { Placeholder("Settings") }
+            composable<Settings> {
+                val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
+                SettingsScreen(vm, snackbar, onSignIn = { nav.navigate(Onboarding) }) { nav.popBackStack() }
+            }
         }
     }
 
@@ -318,9 +327,4 @@ private fun RequestNotificationsOnce(inShell: Boolean) {
             launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
-}
-
-@Composable
-private fun Placeholder(name: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(name) }
 }
