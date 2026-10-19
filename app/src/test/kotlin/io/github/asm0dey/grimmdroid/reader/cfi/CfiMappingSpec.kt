@@ -32,7 +32,10 @@ private fun xhtml(body: String) =
     """<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>T</title></head>""" +
         "<body>$body</body></html>"
 
-private fun tinyEpub(): File =
+private fun tinyEpub(
+    c1: String = xhtml("<p>One</p>"),
+    c2: String = xhtml("""<p id="a">Alpha</p><p>Beta</p><div><p>Gamma</p></div>"""),
+): File =
     File.createTempFile("tiny", ".epub").apply {
         deleteOnExit()
         ZipOutputStream(outputStream()).use { zip ->
@@ -57,8 +60,8 @@ private fun tinyEpub(): File =
                     """<item id="i1" href="c1.xhtml" media-type="application/xhtml+xml"/>""" +
                     """</manifest><spine><itemref idref="i1"/><itemref idref="i2" linear="no"/></spine></package>""",
             )
-            put("c1.xhtml", xhtml("<p>One</p>"))
-            put("c2.xhtml", xhtml("""<p id="a">Alpha</p><p>Beta</p><div><p>Gamma</p></div>"""))
+            put("c1.xhtml", c1)
+            put("c2.xhtml", c2)
         }
     }
 
@@ -131,6 +134,46 @@ class CfiMappingSpec :
         }
         test("cfiFor an href outside the spine is null") {
             epub.cfiFor("missing.xhtml", null, 0.0) shouldBe null
+        }
+
+        test("CRLF is normalized to LF like the browser DOM, so offsets match") {
+            val lf = EpubArchive(tinyEpub(c2 = xhtml("<p>ab\ncd</p>")))
+            val crlf = EpubArchive(tinyEpub(c2 = xhtml("<p>ab\r\ncd</p>")))
+            val cr = EpubArchive(tinyEpub(c2 = xhtml("<p>ab\rcd</p>")))
+            listOf(lf, crlf, cr).forEach { book ->
+                book.use { it.cfiFor("c2.xhtml", null, 0.9) shouldBe "epubcfi(/6/4!/4/2/1:4)" }
+            }
+        }
+
+        context("progression round-trips on realistic shapes") {
+            val shaped =
+                EpubArchive(
+                    tinyEpub(
+                        c1 =
+                            xhtml(
+                                "\n  <h1>Chapter &amp; verse</h1>\n  <p>Call me <em>Ishmael</em>. Some years ago, never mind " +
+                                    "<!-- note -->how long <b>precisely</b>, having little money.</p>\n" +
+                                    "  <div>\n    <p>I thought I would <i>sail</i> about a little &amp; see the watery part.</p>\n  </div>\n",
+                            ),
+                        c2 =
+                            xhtml(
+                                "<section><p>It is a way I have of driving off the spleen</p>\n" +
+                                    "<p>and regulating the <em>circulation</em>; whenever I find myself growing grim.</p></section>",
+                            ),
+                    ),
+                )
+            afterSpec { shaped.close() }
+            listOf("c1.xhtml", "c2.xhtml").forEach { href ->
+                listOf(0.0, 0.13, 0.5, 0.87).forEach { p ->
+                    test("$href at $p") {
+                        val target = shaped.resolve(parseCfi(shaped.cfiFor(href, null, p)!!)!!)!!
+                        target.href shouldBe href
+                        // each document has > 100 body chars, so flooring to a char is off by < 0.01
+                        target.progression shouldBe p.plusOrMinus(0.01)
+                        target.progression shouldBeLessThan p + 1e-9
+                    }
+                }
+            }
         }
 
         context("round-trip over fixture EPUBs") {

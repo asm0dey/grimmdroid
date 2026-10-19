@@ -37,7 +37,10 @@ class EpubArchive(
 
     private fun parse(path: String): Document? {
         val entry = zip.getEntry(path) ?: return null
-        return zip.getInputStream(entry).use { Jsoup.parse(it, null, "", Parser.xmlParser()) }
+        val doc = zip.getInputStream(entry).use { Jsoup.parse(it, null, "", Parser.xmlParser()) }
+        // XML end-of-line handling (as browsers, so foliate-js offsets match): CRLF and lone CR become LF
+        textNodes(doc).forEach { if ('\r' in it.wholeText) it.text(it.wholeText.replace("\r\n", "\n").replace('\r', '\n')) }
+        return doc
     }
 
     private fun readSpine(): List<String> {

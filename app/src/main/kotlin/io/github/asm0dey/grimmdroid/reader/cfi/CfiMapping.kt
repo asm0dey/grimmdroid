@@ -152,7 +152,7 @@ private fun List<Node>.gapsOf(): List<Int> {
 
 private fun bodyOf(root: Element): Element = root.children().firstOrNull { it.normalName() == "body" } ?: root
 
-private fun textNodes(root: Node): List<TextNode> =
+internal fun textNodes(root: Node): List<TextNode> =
     buildList {
         fun walk(n: Node) {
             if (n is TextNode) add(n) else n.childNodes().forEach(::walk)
