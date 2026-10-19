@@ -1,18 +1,29 @@
 # Tool versions for local dev and CI (jdx/mise-action). Renovate bumps these.
 # Java lives in .sdkmanrc so sdkman users (sdkman_auto_env) and mise read one pin; bump it by hand,
-# Renovate has no sdkman manager. Gradle is not here: ./gradlew pins it. The Android SDK is not
-# managed by mise either.
+# Renovate has no sdkman manager. Gradle is not here: ./gradlew pins it.
+# android-sdk (cmdline-tools only) is for local dev: it exports ANDROID_HOME, so no local.properties
+# sdk.dir is needed. CI keeps the runner's preinstalled SDK: ci.yml's install_args names only the
+# tools it wants, so android-sdk is never installed there and mise exports nothing for it.
 [settings]
 idiomatic_version_file_enable_tools = ["java"]
 
 [tools]
 ruby = "3.4.11"
 actionlint = "1.7.12"
+android-sdk = "23.0"
+
+[env]
+# The one list of SDK packages `mise run setup` installs: compileSdk 37 (app/build.gradle.kts) and
+# AGP 9.4.1's default build-tools (ToolsRevisionUtils.DEFAULT_BUILD_TOOLS_REVISION). Bump with AGP.
+ANDROID_SDK_PACKAGES = "platforms;android-37.0 build-tools;36.0.0 platform-tools"
 
 # Thin wrappers: the commands themselves live in Gradle / fastlane.
 [tasks.setup]
-description = "Install Ruby gems (fastlane)"
-run = "bundle install"
+description = "Install Ruby gems (fastlane) and the Android SDK packages (the new sdkmanager accepts licences itself) (local dev only, not CI)"
+run = [
+  "bundle install",
+  "sdkmanager --install $ANDROID_SDK_PACKAGES",
+]
 
 [tasks.test]
 description = "Unit tests via fastlane"
