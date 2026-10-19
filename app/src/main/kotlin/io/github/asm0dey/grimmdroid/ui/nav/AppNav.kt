@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -213,7 +214,8 @@ fun AppNav(container: AppContainer) {
                             selected = it == tab,
                             onClick = { nav.openTab(it.route, reselected = it == tab) },
                             icon = { Icon(painterResource(it.icon), contentDescription = null) },
-                            label = { Text(stringResource(it.label)) },
+                            // One line even at the largest font: a wrapped label breaks mid-word and lifts the icon.
+                            label = { Text(stringResource(it.label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         )
                     }
                 }
