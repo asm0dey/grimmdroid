@@ -3,7 +3,8 @@
 # Renovate has no sdkman manager. Gradle is not here: ./gradlew pins it.
 # android-sdk (cmdline-tools only) is for local dev: it exports ANDROID_HOME, so no local.properties
 # sdk.dir is needed. CI keeps the runner's preinstalled SDK: ci.yml's install_args names only the
-# tools it wants, so android-sdk is never installed there and mise exports nothing for it.
+# tools it wants and its `mise run` step passes --skip-tools (otherwise mise auto-installs every
+# tool here), so android-sdk is never installed there and mise exports nothing for it.
 [settings]
 idiomatic_version_file_enable_tools = ["java"]
 
@@ -19,7 +20,7 @@ ANDROID_SDK_PACKAGES = "platforms/android-37.0 build-tools/36.0.0 platform-tools
 
 # Thin wrappers: the commands themselves live in Gradle / fastlane.
 [tasks.setup]
-description = "Install Ruby gems (fastlane) and the Android SDK packages (the Android CLI accepts licences itself) (local dev only, not CI)"
+description = "Install gems and Android SDK packages (local dev only, not CI)"
 run = [
   "bundle install",
   "android sdk install $ANDROID_SDK_PACKAGES",
