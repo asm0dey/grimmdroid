@@ -96,12 +96,21 @@ private enum class Tab(
 }
 
 // Pops back to Home saving the tab being left, so every tab keeps its own back stack.
-private fun NavController.openTab(tab: Tab) =
-    navigate(tab.route) {
+// Reselecting the current tab returns to its root; navigating would just restore the stack it is already showing.
+internal fun NavController.openTab(
+    route: Any,
+    reselected: Boolean,
+) {
+    if (reselected) {
+        popBackStack(route, inclusive = false)
+        return
+    }
+    navigate(route) {
         popUpTo<Home> { saveState = true }
         launchSingleTop = true
         restoreState = true
     }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -202,7 +211,7 @@ fun AppNav(container: AppContainer) {
                     Tab.entries.forEach {
                         NavigationBarItem(
                             selected = it == tab,
-                            onClick = { nav.openTab(it) },
+                            onClick = { nav.openTab(it.route, reselected = it == tab) },
                             icon = { Icon(painterResource(it.icon), contentDescription = null) },
                             label = { Text(stringResource(it.label)) },
                         )
@@ -225,7 +234,7 @@ fun AppNav(container: AppContainer) {
             composable<Home> {
                 val vm: HomeViewModel = viewModel(factory = HomeViewModel.factory(container))
                 HomeScreen(vm, baseUrl, onSearch = { nav.navigate(Search) }, onAccount = { sheetOpen = true }, onBook = openBook) {
-                    nav.openTab(if (it == Downloads) Tab.DOWNLOADS else Tab.LIBRARY)
+                    nav.openTab(if (it == Downloads) Downloads else Library, reselected = false)
                 }
             }
             composable<Library> {
