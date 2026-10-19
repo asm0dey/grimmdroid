@@ -17,20 +17,24 @@
  */
 package io.github.asm0dey.grimmdroid.download
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import io.github.asm0dey.grimmdroid.export.AfterDownload
 import kotlinx.coroutines.CancellationException
 import java.io.IOException
 
 /** Implemented by the Application (Task 10), like `SyncHost`, so the worker reaches the app's single [DownloadRepository]. */
 interface DownloadHost {
     val downloadRepository: DownloadRepository
+    val afterDownload: AfterDownload
 }
 
 class DownloadWorker(
@@ -45,28 +49,33 @@ class DownloadWorker(
 
     override suspend fun doWork(): Result {
         if (accountId < 0 || bookId < 0) return Result.failure()
-        val repo = (applicationContext as DownloadHost).downloadRepository
+        val host = applicationContext as DownloadHost
+        val repo = host.downloadRepository
         val title = repo.title(accountId, bookId) ?: "book-$bookId"
         val nm = applicationContext.getSystemService(NotificationManager::class.java)
         return try {
             try {
                 setForeground(foregroundInfo(title, -1f))
             } catch (e: IllegalStateException) {
-                // ForegroundServiceStartNotAllowedException (API 31+, started from the background): download without it.
+                // Started from the background on API 31+: download without a foreground notification.
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || e !is ForegroundServiceStartNotAllowedException) throw e
+                Log.w(TAG, "Foreground start not allowed; downloading in the background", e)
             }
-            repo.download(
-                accountId,
-                bookId,
-                inputData.getLong(KEY_FILE_ID, -1).takeIf { it >= 0 },
-                inputData.getBoolean(KEY_PRIMARY, true),
-            ) { nm.notify(notificationId, applicationContext.downloadProgressNotification(title, it)) }
+            val file =
+                repo.download(
+                    accountId,
+                    bookId,
+                    inputData.getLong(KEY_FILE_ID, -1).takeIf { it >= 0 },
+                    inputData.getBoolean(KEY_PRIMARY, true),
+                ) { nm.notify(notificationId, applicationContext.downloadProgressNotification(title, it)) }
+            val outcome = host.afterDownload.run(accountId, file)
             // Different id from the foreground one, which WorkManager removes when the worker ends.
-            applicationContext.notifyDownloaded(notificationId + 1, title)
+            applicationContext.notifyDownloaded(notificationId + 1, title, file, outcome)
             Result.success()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure(workDataOf(KEY_ERROR to downloadErrorCode(e))) // the row is FAILED; the user retries from the UI
+            Result.failure(workDataOf(KEY_ERROR to downloadErrorCode(e))) // download() already marked the row FAILED; retry is from the UI
         }
     }
 
@@ -85,6 +94,7 @@ class DownloadWorker(
     }
 
     companion object {
+        private const val TAG = "DownloadWorker"
         const val KEY_ACCOUNT_ID = "accountId"
         const val KEY_BOOK_ID = "bookId"
         const val KEY_FILE_ID = "fileId"

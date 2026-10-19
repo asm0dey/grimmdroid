@@ -7,6 +7,42 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- Package visibility (Android 11+) so Exporter.openWith can tell whether any reader exists. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/epub+zip" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/pdf" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.comicbook+zip" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.comicbook-rar" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/x-mobipocket-ebook" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/vnd.amazon.ebook" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/x-fictionbook+xml" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/octet-stream" />
+        </intent>
+    </queries>
+
     <application
         android:name=".GrimmdroidApp"
         android:allowBackup="false"
@@ -33,6 +69,20 @@
                     android:scheme="grimmory" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".export.ExportActionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="io.github.asm0dey.grimmdroid.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- DownloadWorker runs in WorkManager's foreground service as dataSync. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

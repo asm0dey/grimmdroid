@@ -4,4 +4,12 @@
     <string name="sync_notification">Syncing library</string>
     <string name="downloads_channel">Downloads</string>
     <string name="download_done">%1$s downloaded</string>
+    <string name="open_action">Open</string>
+    <string name="share_action">Share</string>
+    <string name="no_app_to_open">No app can open this book</string>
+    <string name="file_not_available">This file is no longer available</string>
+    <string name="saved_to_folder">Saved to %1$s</string>
+    <string name="choose_folder_hint">Choose a folder in Settings to save downloads</string>
+    <string name="folder_lost_hint">Saved-books folder is unavailable. Choose it again in Settings</string>
+    <string name="save_failed">Couldn\'t save to the chosen folder</string>
 </resources>

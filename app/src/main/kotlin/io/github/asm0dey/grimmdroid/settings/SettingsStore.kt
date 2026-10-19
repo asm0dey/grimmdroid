@@ -17,12 +17,18 @@
  */
 package io.github.asm0dey.grimmdroid.settings
 
+import android.net.Uri
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 class SettingsStore(
     private val store: DataStore<Preferences>,
@@ -33,7 +39,43 @@ class SettingsStore(
         store.edit { if (id == null) it.remove(CURRENT_ACCOUNT) else it[CURRENT_ACCOUNT] = id }
     }
 
+    val afterDownload: Flow<AfterDownloadAction> =
+        store.data.map { p -> AfterDownloadAction.entries.firstOrNull { it.name == p[AFTER_DOWNLOAD] } ?: AfterDownloadAction.NOTHING }
+
+    suspend fun setAfterDownload(action: AfterDownloadAction) {
+        store.edit { it[AFTER_DOWNLOAD] = action.name }
+    }
+
+    val theme: Flow<ThemeMode> =
+        store.data.map { p -> ThemeMode.entries.firstOrNull { it.name == p[THEME] } ?: ThemeMode.SYSTEM }
+
+    suspend fun setTheme(mode: ThemeMode) {
+        store.edit { it[THEME] = mode.name }
+    }
+
+    val dynamicColor: Flow<Boolean> = store.data.map { it[DYNAMIC_COLOR] ?: true }
+
+    suspend fun setDynamicColor(enabled: Boolean) {
+        store.edit { it[DYNAMIC_COLOR] = enabled }
+    }
+
+    /** The tree URI the user picked for [accountId]'s saved books, if any. */
+    fun folderUri(accountId: Long): Flow<Uri?> = store.data.map { p -> p[folderKey(accountId)]?.let(Uri::parse) }
+
+    suspend fun setFolderUri(
+        accountId: Long,
+        uri: Uri?,
+    ) {
+        store.edit { if (uri == null) it.remove(folderKey(accountId)) else it[folderKey(accountId)] = uri.toString() }
+    }
+
     private companion object {
+        val AFTER_DOWNLOAD = stringPreferencesKey("after_download")
+        val THEME = stringPreferencesKey("theme")
+        val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+
+        fun folderKey(accountId: Long) = stringPreferencesKey("folder_uri_$accountId")
+
         val CURRENT_ACCOUNT = longPreferencesKey("current_account_id")
     }
 }

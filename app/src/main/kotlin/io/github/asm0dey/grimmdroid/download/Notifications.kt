@@ -20,8 +20,14 @@ package io.github.asm0dey.grimmdroid.download
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.graphics.drawable.Icon
 import io.github.asm0dey.grimmdroid.R
+import io.github.asm0dey.grimmdroid.export.AfterDownloadOutcome
+import io.github.asm0dey.grimmdroid.export.ExportActionActivity
+import java.io.File
 
 internal const val DOWNLOAD_CHANNEL = "downloads"
 
@@ -53,13 +59,45 @@ internal fun Context.downloadProgressNotification(
 internal fun Context.notifyDownloaded(
     id: Int,
     title: String,
+    file: File,
+    outcome: AfterDownloadOutcome,
 ) {
-    val notification =
+    val text =
+        when (outcome) {
+            is AfterDownloadOutcome.Saved -> getString(R.string.saved_to_folder, outcome.folderName)
+            AfterDownloadOutcome.NeedsFolder -> getString(R.string.choose_folder_hint)
+            AfterDownloadOutcome.FolderLost -> getString(R.string.folder_lost_hint)
+            AfterDownloadOutcome.SaveFailed -> getString(R.string.save_failed)
+            else -> null
+        }
+    downloadChannel().notify(
+        id,
         Notification
             .Builder(this, DOWNLOAD_CHANNEL)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle(getString(R.string.download_done, title))
+            .setContentText(text)
             .setAutoCancel(true)
-            .build()
-    downloadChannel().notify(id, notification)
+            .addAction(exportAction(ExportActionActivity.ACTION_OPEN, R.string.open_action, android.R.drawable.ic_menu_view, file, title))
+            .addAction(
+                exportAction(ExportActionActivity.ACTION_SHARE, R.string.share_action, android.R.drawable.ic_menu_share, file, title),
+            ).build(),
+    )
+}
+
+private fun Context.exportAction(
+    action: String,
+    label: Int,
+    icon: Int,
+    file: File,
+    title: String,
+): Notification.Action {
+    val intent =
+        Intent(this, ExportActionActivity::class.java)
+            .setAction(action)
+            .putExtra(ExportActionActivity.EXTRA_PATH, file.path)
+            .putExtra(ExportActionActivity.EXTRA_TITLE, title)
+    // Per book and action: PendingIntents ignore extras when deciding whether two are the same.
+    val pending = PendingIntent.getActivity(this, "$action:${file.path}".hashCode(), intent, PendingIntent.FLAG_IMMUTABLE)
+    return Notification.Action.Builder(Icon.createWithResource(this, icon), getString(label), pending).build()
 }
