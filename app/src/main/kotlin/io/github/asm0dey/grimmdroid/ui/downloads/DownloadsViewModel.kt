@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -60,8 +61,18 @@ class DownloadsViewModel(
 
     private val _saveResults = Channel<Result<FolderResult>>(Channel.BUFFERED)
 
-    /** One result per [saveSelected]: the outcome, or the IOException that stopped it. */
+    /** One result per [saveSelected]: the outcome, or the exception that stopped it. */
     val saveResults: Flow<Result<FolderResult>> = _saveResults.receiveAsFlow()
+
+    private val _deleteFailed = Channel<Unit>(Channel.BUFFERED)
+
+    /** Fires once per [deleteSelected] that couldn't delete every selected book. */
+    val deleteFailed: Flow<Unit> = _deleteFailed.receiveAsFlow()
+
+    init {
+        // Book ids repeat across accounts, so a selection must not outlive the account it was made in.
+        viewModelScope.launch { accountId.distinctUntilChanged().collect { clearSelection() } }
+    }
 
     fun toggle(bookId: Long) = _selection.update { if (bookId in it) it - bookId else it + bookId }
 
@@ -71,29 +82,41 @@ class DownloadsViewModel(
 
     fun deleteSelected() {
         val chosen = selected()
+        if (chosen.isEmpty()) return
         viewModelScope.launch {
-            chosen.forEach { delete(it.download.accountId, it.download.bookId) }
-            clearSelection()
+            var failed = false
+            for (item in chosen) {
+                try {
+                    delete(item.download.accountId, item.download.bookId)
+                    _selection.update { it - item.download.bookId }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    failed = true
+                }
+            }
+            if (failed) _deleteFailed.send(Unit)
         }
     }
 
-    /** Stops at the first file that can't be saved; the selection stays so the user can retry after fixing the folder. */
+    /** Stops at the first file that can't be saved; the selection keeps what wasn't saved so the user can retry. */
     fun saveSelected() {
         val chosen = selected()
+        if (chosen.isEmpty()) return
         viewModelScope.launch {
-            var result: Result<FolderResult> = Result.success(FolderResult.Saved(""))
+            var result: Result<FolderResult> = Result.failure(IllegalStateException())
             for (item in chosen) {
                 result =
                     try {
                         Result.success(save(item.download.accountId, File(item.download.path)))
                     } catch (e: CancellationException) {
                         throw e
-                    } catch (e: java.io.IOException) {
+                    } catch (e: Exception) {
                         Result.failure(e)
                     }
                 if (result.getOrNull() !is FolderResult.Saved) break
+                _selection.update { it - item.download.bookId }
             }
-            if (result.getOrNull() is FolderResult.Saved) clearSelection()
             _saveResults.send(result)
         }
     }

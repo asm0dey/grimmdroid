@@ -101,4 +101,5 @@ data class BookRow(
 data class DownloadWithBook(
     @Embedded val download: DownloadEntity,
     @Embedded(prefix = "b_") val book: BookEntity,
+    val fileCount: Int = 1,
 )

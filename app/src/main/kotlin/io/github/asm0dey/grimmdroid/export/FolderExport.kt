@@ -88,7 +88,7 @@ class FolderExport(
                 doc.delete()
                 throw e
             }
-            FolderResult.Saved(tree.name ?: "")
+            FolderResult.Saved(tree.name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment ?: "your folder")
         }
     }
 }

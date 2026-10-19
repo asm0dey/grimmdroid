@@ -171,9 +171,14 @@ abstract class CatalogDao {
         bookId: Long,
     ): Flow<DownloadEntity?>
 
-    /** DONE downloads with their books, newest first (a re-download is a new row, so rowid order is download order). */
+    /**
+     * One row per book with a DONE download: sizeBytes is summed over its files, the other download columns come from its
+     * first file. Ordered by the book's first-download rowid, newest first: an approximation (upserts keep the rowid, so a
+     * re-download doesn't move up); there is no download timestamp in v1.
+     */
     @Query(
-        "SELECT d.*, " +
+        "SELECT d.accountId, d.bookId, MIN(d.fileId) AS fileId, MIN(d.fileName) AS fileName, MIN(d.path) AS path, " +
+            "SUM(d.sizeBytes) AS sizeBytes, d.state, 1.0 AS progress, COUNT(*) AS fileCount, " +
             "b.accountId AS b_accountId, b.id AS b_id, b.title AS b_title, " +
             "b.authors AS b_authors, b.seriesName AS b_seriesName, " +
             "b.seriesNumber AS b_seriesNumber, b.libraryId AS b_libraryId, " +
@@ -183,7 +188,7 @@ abstract class CatalogDao {
             "b.fileSizeKb AS b_fileSizeKb, b.coverUpdatedOn AS b_coverUpdatedOn, " +
             "b.isAudiobook AS b_isAudiobook, b.syncGeneration AS b_syncGeneration " +
             "FROM DownloadEntity d JOIN BookEntity b ON b.accountId = d.accountId AND b.id = d.bookId " +
-            "WHERE d.accountId = :accountId AND d.state = 'DONE' ORDER BY d.rowid DESC",
+            "WHERE d.accountId = :accountId AND d.state = 'DONE' GROUP BY d.accountId, d.bookId ORDER BY MIN(d.rowid) DESC",
     )
     abstract fun downloads(accountId: Long): Flow<List<DownloadWithBook>>
 

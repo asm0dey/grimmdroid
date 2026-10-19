@@ -78,4 +78,5 @@
     <string name="save_to_folder_action">Save to folder</string>
     <string name="clear_selection">Clear selection</string>
     <string name="change_action">Change</string>
+    <string name="delete_failed">Couldn\'t delete some books</string>
 </resources>

@@ -92,6 +92,8 @@ fun DownloadsScreen(
     val folderLost = stringResource(R.string.folder_lost_hint)
     val saveFailed = stringResource(R.string.save_failed)
 
+    val deleteFailed = stringResource(R.string.delete_failed)
+    LaunchedEffect(vm) { vm.deleteFailed.collect { snackbar.showSnackbar(deleteFailed) } }
     LaunchedEffect(vm) {
         vm.saveResults.collect { result ->
             val outcome = result.getOrNull()

@@ -341,4 +341,24 @@ class CatalogDaoTest {
             assertEquals(listOf(30L, 10L), rows.map { it.download.sizeBytes })
             assertEquals("T3", rows.first().book.title)
         }
+
+    @Test
+    fun aBookWithSeveralDoneFilesIsOneRowWithSummedSize() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1), book(2)))
+
+            fun dl(
+                id: Long,
+                file: Long,
+                size: Long,
+            ) = DownloadEntity(1, id, file, "f$file", "/p$file", size, DownloadState.DONE, 1f)
+            dao.upsertDownload(dl(1, 5, 10))
+            dao.upsertDownload(dl(1, 6, 20))
+            dao.upsertDownload(dl(2, 7, 1))
+            val rows = dao.downloads(1).first()
+            assertEquals(listOf(2L, 1L), rows.map { it.book.id })
+            assertEquals(31L, rows.sumOf { it.download.sizeBytes })
+            assertEquals(30L, rows.first { it.book.id == 1L }.download.sizeBytes)
+            assertEquals(2, rows.first { it.book.id == 1L }.fileCount)
+        }
 }
