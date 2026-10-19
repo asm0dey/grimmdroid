@@ -71,6 +71,14 @@ android {
     }
 }
 
+// MigrationTestHelper reads the exported schemas as assets, and Robolectric serves only the main variant's merged
+// assets, so the debug build (never release) carries them.
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.sources.assets?.addStaticSourceDirectory("$projectDir/schemas")
+    }
+}
+
 // Room writes each schema version here (committed), for migration tests once the schema changes.
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -116,6 +124,7 @@ dependencies {
     testImplementation(libs.ktor.client.mock)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.junit4)
+    testImplementation(libs.androidx.room.testing)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)

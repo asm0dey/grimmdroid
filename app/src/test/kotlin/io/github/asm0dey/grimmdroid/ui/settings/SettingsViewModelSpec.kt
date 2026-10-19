@@ -39,6 +39,8 @@ import io.github.asm0dey.grimmdroid.catalog.DownloadState
 import io.github.asm0dey.grimmdroid.download.DownloadRepository
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import io.github.asm0dey.grimmdroid.export.FolderExport
+import io.github.asm0dey.grimmdroid.reader.PendingUpload
+import io.github.asm0dey.grimmdroid.reader.ReadingPosition
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import kotlinx.coroutines.CompletableDeferred
@@ -114,6 +116,7 @@ class SettingsViewModelSpec {
                         accounts,
                         settings,
                         db.catalogDao(),
+                        db.readerDao(),
                         DownloadRepository(db.catalogDao(), { error("no network in this test") }, dir),
                         sync,
                         folderExport,
@@ -168,7 +171,9 @@ class SettingsViewModelSpec {
     fun signOutWithDeleteRemovesAccountRowsFilesAndTokens() =
         runBlocking {
             val (id, file) = accountWithBook()
+            db.readerDao().upsertPosition(ReadingPosition(id, BOOK, "{}", 0.5, PendingUpload.NONE, 1))
             vm.signOutNow(id, removeAccount = true)
+            assertNull(db.readerDao().position(id, BOOK))
             assertNull(accounts.account(id))
             assertNull(accounts.tokenSource(id).current())
             assertFalse(file.exists())

@@ -34,6 +34,7 @@ import io.github.asm0dey.grimmdroid.catalog.CatalogDao
 import io.github.asm0dey.grimmdroid.download.DownloadRepository
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import io.github.asm0dey.grimmdroid.export.FolderExport
+import io.github.asm0dey.grimmdroid.reader.ReaderDao
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
@@ -63,6 +64,7 @@ class SettingsViewModel(
     private val accounts: AccountRepository,
     private val settings: SettingsStore,
     private val catalog: CatalogDao,
+    private val reader: ReaderDao,
     private val downloads: DownloadRepository,
     private val sync: LibrarySync,
     private val folderExport: FolderExport,
@@ -165,6 +167,7 @@ class SettingsViewModel(
             // A sweep still running in this process would re-insert catalogue rows after the delete.
             sync.exclusive(accountId) {
                 catalog.deleteAccount(accountId)
+                reader.deleteAccount(accountId)
                 accounts.remove(accountId, deleteDownloads = true)
                 sync.forget(accountId)
             }
@@ -190,6 +193,7 @@ class SettingsViewModel(
                         container.accounts,
                         container.settings,
                         container.db.catalogDao(),
+                        container.db.readerDao(),
                         container.downloadRepository,
                         container.librarySync,
                         container.folderExport,

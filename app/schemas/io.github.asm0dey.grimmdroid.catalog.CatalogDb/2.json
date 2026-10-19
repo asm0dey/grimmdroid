@@ -1,0 +1,568 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "95ca224a9cb221aa8978c1d6aff6fc2b",
+    "entities": [
+      {
+        "tableName": "AccountEntity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `baseUrl` TEXT NOT NULL, `username` TEXT NOT NULL, `serverVersion` TEXT NOT NULL, `canDownload` INTEGER NOT NULL, `isAdmin` INTEGER NOT NULL, `encryptedTokens` BLOB, `signedOut` INTEGER NOT NULL, `lastSyncedAt` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseUrl",
+            "columnName": "baseUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "username",
+            "columnName": "username",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverVersion",
+            "columnName": "serverVersion",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canDownload",
+            "columnName": "canDownload",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAdmin",
+            "columnName": "isAdmin",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "encryptedTokens",
+            "columnName": "encryptedTokens",
+            "affinity": "BLOB"
+          },
+          {
+            "fieldPath": "signedOut",
+            "columnName": "signedOut",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "lastSyncedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_AccountEntity_baseUrl_username",
+            "unique": true,
+            "columnNames": [
+              "baseUrl",
+              "username"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_AccountEntity_baseUrl_username` ON `${TABLE_NAME}` (`baseUrl`, `username`)"
+          }
+        ]
+      },
+      {
+        "tableName": "BookEntity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` INTEGER NOT NULL, `id` INTEGER NOT NULL, `title` TEXT NOT NULL, `authors` TEXT NOT NULL, `seriesName` TEXT, `seriesNumber` REAL, `libraryId` INTEGER, `addedOn` INTEGER, `lastReadTime` INTEGER, `readProgress` REAL, `primaryFileId` INTEGER, `primaryFileType` TEXT, `primaryFileName` TEXT, `fileSizeKb` INTEGER, `coverUpdatedOn` INTEGER, `isAudiobook` INTEGER NOT NULL, `syncGeneration` INTEGER NOT NULL, PRIMARY KEY(`accountId`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authors",
+            "columnName": "authors",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seriesName",
+            "columnName": "seriesName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "seriesNumber",
+            "columnName": "seriesNumber",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "addedOn",
+            "columnName": "addedOn",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastReadTime",
+            "columnName": "lastReadTime",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "readProgress",
+            "columnName": "readProgress",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "primaryFileId",
+            "columnName": "primaryFileId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "primaryFileType",
+            "columnName": "primaryFileType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "primaryFileName",
+            "columnName": "primaryFileName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fileSizeKb",
+            "columnName": "fileSizeKb",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "coverUpdatedOn",
+            "columnName": "coverUpdatedOn",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "isAudiobook",
+            "columnName": "isAudiobook",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncGeneration",
+            "columnName": "syncGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId",
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_BookEntity_accountId_libraryId",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "libraryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_BookEntity_accountId_libraryId` ON `${TABLE_NAME}` (`accountId`, `libraryId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "BookFts",
+        "createSql": "CREATE VIRTUAL TABLE IF NOT EXISTS `${TABLE_NAME}` USING FTS4(`title` TEXT NOT NULL, `authors` TEXT NOT NULL, `seriesName` TEXT, content=`BookEntity`)",
+        "fields": [
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "authors",
+            "columnName": "authors",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seriesName",
+            "columnName": "seriesName",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": []
+        },
+        "ftsVersion": "FTS4",
+        "ftsOptions": {
+          "tokenizer": "simple",
+          "tokenizerArgs": [],
+          "contentTable": "BookEntity",
+          "languageIdColumnName": "",
+          "matchInfo": "FTS4",
+          "notIndexedColumns": [],
+          "prefixSizes": [],
+          "preferredOrder": "ASC"
+        },
+        "contentSyncTriggers": [
+          "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_BookFts_BEFORE_UPDATE BEFORE UPDATE ON `BookEntity` BEGIN DELETE FROM `BookFts` WHERE `docid`=OLD.`rowid`; END",
+          "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_BookFts_BEFORE_DELETE BEFORE DELETE ON `BookEntity` BEGIN DELETE FROM `BookFts` WHERE `docid`=OLD.`rowid`; END",
+          "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_BookFts_AFTER_UPDATE AFTER UPDATE ON `BookEntity` BEGIN INSERT INTO `BookFts`(`docid`, `title`, `authors`, `seriesName`) VALUES (NEW.`rowid`, NEW.`title`, NEW.`authors`, NEW.`seriesName`); END",
+          "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_BookFts_AFTER_INSERT AFTER INSERT ON `BookEntity` BEGIN INSERT INTO `BookFts`(`docid`, `title`, `authors`, `seriesName`) VALUES (NEW.`rowid`, NEW.`title`, NEW.`authors`, NEW.`seriesName`); END"
+        ]
+      },
+      {
+        "tableName": "LibraryEntity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` INTEGER NOT NULL, `id` INTEGER NOT NULL, `name` TEXT NOT NULL, `bookCount` INTEGER NOT NULL, PRIMARY KEY(`accountId`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookCount",
+            "columnName": "bookCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId",
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "ShelfEntity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` INTEGER NOT NULL, `id` INTEGER NOT NULL, `name` TEXT NOT NULL, `bookCount` INTEGER NOT NULL, `magic` INTEGER NOT NULL, PRIMARY KEY(`accountId`, `id`, `magic`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookCount",
+            "columnName": "bookCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "magic",
+            "columnName": "magic",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId",
+            "id",
+            "magic"
+          ]
+        }
+      },
+      {
+        "tableName": "ShelfBookCrossRef",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` INTEGER NOT NULL, `shelfId` INTEGER NOT NULL, `magic` INTEGER NOT NULL, `bookId` INTEGER NOT NULL, PRIMARY KEY(`accountId`, `shelfId`, `magic`, `bookId`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shelfId",
+            "columnName": "shelfId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "magic",
+            "columnName": "magic",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookId",
+            "columnName": "bookId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId",
+            "shelfId",
+            "magic",
+            "bookId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ShelfBookCrossRef_accountId_bookId",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "bookId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ShelfBookCrossRef_accountId_bookId` ON `${TABLE_NAME}` (`accountId`, `bookId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "DownloadEntity",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` INTEGER NOT NULL, `bookId` INTEGER NOT NULL, `fileId` INTEGER NOT NULL, `fileName` TEXT NOT NULL, `path` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `state` TEXT NOT NULL, `progress` REAL NOT NULL, PRIMARY KEY(`accountId`, `bookId`, `fileId`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookId",
+            "columnName": "bookId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileId",
+            "columnName": "fileId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileName",
+            "columnName": "fileName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "sizeBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "progress",
+            "columnName": "progress",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId",
+            "bookId",
+            "fileId"
+          ]
+        }
+      },
+      {
+        "tableName": "ReadingPosition",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountId` INTEGER NOT NULL, `bookId` INTEGER NOT NULL, `locatorJson` TEXT NOT NULL, `totalProgression` REAL NOT NULL, `pending` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`accountId`, `bookId`))",
+        "fields": [
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookId",
+            "columnName": "bookId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "locatorJson",
+            "columnName": "locatorJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalProgression",
+            "columnName": "totalProgression",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pending",
+            "columnName": "pending",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountId",
+            "bookId"
+          ]
+        }
+      },
+      {
+        "tableName": "BookmarkRow",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`localId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `accountId` INTEGER NOT NULL, `bookId` INTEGER NOT NULL, `serverId` INTEGER, `cfi` TEXT, `locatorJson` TEXT NOT NULL, `title` TEXT NOT NULL, `totalProgression` REAL NOT NULL, `state` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookId",
+            "columnName": "bookId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "cfi",
+            "columnName": "cfi",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "locatorJson",
+            "columnName": "locatorJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalProgression",
+            "columnName": "totalProgression",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_BookmarkRow_accountId_bookId",
+            "unique": false,
+            "columnNames": [
+              "accountId",
+              "bookId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_BookmarkRow_accountId_bookId` ON `${TABLE_NAME}` (`accountId`, `bookId`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '95ca224a9cb221aa8978c1d6aff6fc2b')"
+    ]
+  }
+}
