@@ -150,6 +150,23 @@ class ReaderActivity : FragmentActivity() {
 
     private var chromeVisible by mutableStateOf(false)
     private var locator by mutableStateOf<Locator?>(null)
+
+    // The page on screen, for "is it bookmarked"; null until the navigator reports one.
+    private var page by mutableStateOf<PageSpan?>(null)
+    private val scrolled get() = settings.epub.scroll == true
+
+    // Deprecated in Readium but the only page count it reports; with scroll on it counts the whole resource as one page.
+    @Suppress("DEPRECATION")
+    private val paginationListener =
+        object : EpubNavigatorFragment.PaginationListener {
+            override fun onPageChanged(
+                pageIndex: Int,
+                totalPages: Int,
+                locator: Locator,
+            ) {
+                if (!scrolled) page = PageSpan.of(locator, 1.0 / totalPages.coerceAtLeast(1))
+            }
+        }
     private var publication by mutableStateOf<Publication?>(null)
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -250,6 +267,7 @@ class ReaderActivity : FragmentActivity() {
         initialLocator = initial,
         initialPreferences = settings.toEpubPreferences(systemDark),
         listener = navigatorListener,
+        paginationListener = paginationListener,
     )
 
     private val navigator get() = supportFragmentManager.findFragmentById(R.id.reader_navigator) as? EpubNavigatorFragment
@@ -274,6 +292,14 @@ class ReaderActivity : FragmentActivity() {
                         locator = current
                         current.locations.position?.let(vm.pace::onPosition)
                         vm.onLocatorChanged(current.withSelector(navigator.firstVisibleElementLocator()?.locations?.cssSelector))
+                        // Scrolled, a "page" is the viewport: Readium's progression is scrollY over the content height.
+                        if (scrolled) {
+                            page =
+                                navigator
+                                    .evaluateJavascript("window.innerHeight / document.scrollingElement.scrollHeight")
+                                    ?.toDoubleOrNull()
+                                    ?.let { PageSpan.of(current, it) }
+                        }
                     }
                 }
                 launch { vm.navigateTo.collect { navigator.go(it) } }
@@ -341,17 +367,17 @@ class ReaderActivity : FragmentActivity() {
                 locator = locator,
                 toc = remember(pub) { pub?.tableOfContents?.flattenToc().orEmpty() },
                 jump = jump,
-                bookmarked =
-                    locator?.locations?.totalProgression?.let { page -> bookmarks.any { onPage(it.totalProgression, page) } } == true,
+                bookmarked = page?.let { span -> bookmarks.any { it.isOn(span) } } == true,
                 bookmarks = bookmarks,
                 onBack = ::finish,
                 onToggleBookmark = {
                     lifecycleScope.launch {
                         val nav = navigator ?: return@launch
-                        val page = locator ?: return@launch
+                        val at = locator ?: return@launch
+                        val span = page ?: return@launch
                         // The title's text, and the element the CFI names.
                         val first = nav.firstVisibleElementLocator()
-                        vm.toggleBookmark(page.withSelector(first?.locations?.cssSelector), first?.text)
+                        vm.toggleBookmark(at.withSelector(first?.locations?.cssSelector), span, first?.text)
                     }
                 },
                 onBookmarksOpened = vm::refreshBookmarks,

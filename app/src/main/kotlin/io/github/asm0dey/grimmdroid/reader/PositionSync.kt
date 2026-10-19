@@ -142,6 +142,9 @@ private fun JsonObject.string(key: String) = (get(key) as? JsonPrimitive)?.conte
 
 internal fun locatorHref(json: String): String? = locator(json)?.string("href")
 
+internal fun locatorProgression(json: String): Double? =
+    ((locator(json)?.get("locations") as? JsonObject)?.get("progression") as? JsonPrimitive)?.doubleOrNull
+
 /** CFI for a Readium locator JSON (href, locations.cssSelector, locations.progression); null when it doesn't map. */
 fun EpubArchive.cfiForLocator(json: String): String? {
     val loc = locator(json) ?: return null

@@ -55,11 +55,30 @@ fun bookmarkTitle(
     return listOfNotNull(chapter?.takeIf { it.isNotBlank() }, words).joinToString(" — ")
 }
 
-/** A bookmark at [bookmark] is on the page starting at [page]: from the page start to about a page on. */
-fun onPage(
-    bookmark: Double,
-    page: Double,
-) = bookmark >= page && bookmark - page < SAME_PLACE
+/** The page on screen: resource [href] (as in a locator's JSON) from progression [start] up to the next page's [end]. */
+data class PageSpan(
+    val href: String,
+    val start: Double,
+    val end: Double,
+) {
+    companion object {
+        /** The page [locator] starts, [fraction] of its resource long (1 / page count, or the viewport's share when scrolled). */
+        fun of(
+            locator: Locator,
+            fraction: Double,
+        ): PageSpan {
+            val start = locator.locations.progression ?: 0.0
+            return PageSpan(locator.href.toString(), start, start + fraction)
+        }
+    }
+}
+
+/** On [page] when in its resource between its start and the next page; the last page holds the resource's end. */
+fun BookmarkRow.isOn(page: PageSpan): Boolean {
+    if (locatorHref(locatorJson) != page.href) return false
+    val p = locatorProgression(locatorJson) ?: return false
+    return p >= page.start && (p < page.end || page.end >= 1.0)
+}
 
 /** Where [row] points in this publication; null for a bookmark whose CFI did not resolve. */
 fun Publication.locatorFor(row: BookmarkRow): Locator? {
@@ -211,7 +230,8 @@ private fun BookmarkDto.toRow(
     val parsed = cfi?.let(::parseCfi)
     val target = parsed?.let { archive.resolve(it) }
     // shortcut: (spine index + progression) / spine size, like serverPosition's fallback; Readium's own
-    // totalProgression weighs resources by length, so a web bookmark may read as a page off. Upgrade with positions.
+    // totalProgression weighs resources by length, so the list's order and % may be off (the toggle uses href +
+    // progression, not this). Upgrade with positions.
     val total = if (parsed != null && target != null) (parsed.spineIndex + target.progression) / archive.spine.size else 0.0
     val locator =
         target?.let { t ->

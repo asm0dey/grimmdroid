@@ -99,7 +99,7 @@ class ReaderViewModelSpec {
             epub,
             { app.openPublication(it, emptyList()) },
             sync,
-            Bookmarks(dao, { null }, { server.api }) { enqueued += it },
+            Bookmarks(dao, { db.accountDao().get(it) }, { server.api }) { enqueued += it },
             dao,
             { server.api },
             online,
@@ -451,14 +451,40 @@ class ReaderViewModelSpec {
     fun toggleBookmarkAddsThenRemovesTheBookmarkOnThisPage() =
         runTest(dispatcher) {
             val vm = vm(MutableStateFlow(false))
-            vm.toggleBookmark(locator(0.5).copy(title = "Two"), Locator.Text(highlight = "Alpha"))
-            until { bookmarks().size == 1 }
+            vm.toggleBookmark(locator(0.5).copy(title = "Two"), PageSpan("c2.xhtml", 0.0, 0.5), Locator.Text(highlight = "Alpha"))
+            until { bookmarks().singleOrNull()?.state == BookmarkState.SYNCED }
+            settle() // the toggle finishes; a tap before that is ignored
             val row = bookmarks().single()
             assertEquals("Two — Alpha", row.title)
             assertEquals("epubcfi(/6/4!/4/2)", row.cfi)
             assertEquals(0.5, row.totalProgression, 0.0)
-            vm.toggleBookmark(locator(0.5), null) // the same page again
-            until { bookmarks().isEmpty() }
+            vm.toggleBookmark(locator(0.5), PageSpan("c2.xhtml", 0.0, 0.5), null) // the same page again
+            until { bookmarks().isEmpty() && server.bookmarkDeletes == listOf("/api/v1/bookmarks/1") }
+        }
+
+    @Test
+    fun toggleOnTheNextPageAddsABookmarkAndKeepsThePreviousOne() =
+        runTest(dispatcher) {
+            val vm = vm(MutableStateFlow(false))
+            vm.toggleBookmark(locator(0.5), PageSpan("c2.xhtml", 0.0, 0.5), null)
+            until { bookmarks().singleOrNull()?.state == BookmarkState.SYNCED }
+            settle()
+            val next = locator(0.75).copyWithLocations(progression = 0.5)
+            vm.toggleBookmark(next, PageSpan("c2.xhtml", 0.5, 1.0), null)
+            until { bookmarks().size == 2 && server.bookmarkPosts.size == 2 }
+            assertTrue(server.bookmarkDeletes.isEmpty())
+        }
+
+    @Test
+    fun aDoubleTapAddsOneBookmark() =
+        runTest(dispatcher) {
+            val vm = vm(MutableStateFlow(false))
+            vm.toggleBookmark(locator(0.5), PageSpan("c2.xhtml", 0.0, 0.5), null)
+            vm.toggleBookmark(locator(0.5), PageSpan("c2.xhtml", 0.0, 0.5), null)
+            until { bookmarks().isNotEmpty() && server.bookmarkPosts.isNotEmpty() }
+            settle()
+            assertEquals(1, bookmarks().size)
+            assertEquals(1, server.bookmarkPosts.size)
         }
 
     private fun locator(

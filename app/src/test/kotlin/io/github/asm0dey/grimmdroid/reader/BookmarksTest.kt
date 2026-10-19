@@ -299,11 +299,40 @@ class BookmarksTest {
         assertEquals("Two — Alpha", bookmarkTitle("Two", Locator.Text(highlight = "Two", after = "Alpha")))
     }
 
+    private fun at(
+        href: String,
+        progression: Double,
+    ) = BookmarkRow(
+        0,
+        1,
+        BOOK,
+        null,
+        null,
+        locator
+            .copy(href = Url(href)!!)
+            .copyWithLocations(progression = progression)
+            .toJSON()
+            .toString(),
+        "t",
+        0.9,
+        BookmarkState.SYNCED,
+    )
+
     @Test
-    fun onPageMeansFromThePageStartToAboutAPageOn() {
-        assertTrue(onPage(bookmark = 0.5, page = 0.5))
-        assertTrue(onPage(bookmark = 0.503, page = 0.5))
-        assertFalse(onPage(bookmark = 0.499, page = 0.5))
-        assertFalse(onPage(bookmark = 0.506, page = 0.5))
+    fun onPageMeansTheSameResourceFromThisPageToTheNext() {
+        val page = PageSpan("c2.xhtml", 0.25, 0.5)
+        assertTrue(at("c2.xhtml", 0.25).isOn(page))
+        assertTrue(at("c2.xhtml", 0.4).isOn(page))
+        assertFalse(at("c2.xhtml", 0.5).isOn(page)) // the next page
+        assertFalse(at("c2.xhtml", 0.2).isOn(page))
+        assertFalse(at("c1.xhtml", 0.3).isOn(page))
+        // A short page (large font, long chapter): the window is that page only.
+        val short = PageSpan("c2.xhtml", 0.3, 0.31)
+        assertTrue(at("c2.xhtml", 0.305).isOn(short))
+        assertFalse(at("c2.xhtml", 0.31).isOn(short))
+        // The last page holds the resource's end.
+        assertTrue(at("c2.xhtml", 1.0).isOn(PageSpan("c2.xhtml", 0.75, 1.0)))
+        // An unresolved server bookmark is on no page.
+        assertFalse(at("c2.xhtml", 0.3).copy(locatorJson = "{}").isOn(page))
     }
 }

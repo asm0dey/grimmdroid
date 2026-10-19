@@ -156,6 +156,7 @@ class ReaderViewModel(
     }
 
     private var save: Job? = null
+    private var toggling: Job? = null
     private var debounced: Job? = null
     private var flush: Job? = null
 
@@ -301,19 +302,22 @@ class ReaderViewModel(
         }
     }
 
-    /** Removes the bookmarks on the page starting at [page], or bookmarks it when there are none; [text] titles it. */
+    /** Removes the bookmarks on [span], or bookmarks [page] (the locator it starts with) when there are none; [text] titles it. */
     fun toggleBookmark(
         page: Locator,
+        span: PageSpan,
         text: Locator.Text?,
     ) {
-        val at = page.locations.totalProgression ?: return
-        viewModelScope.launch {
-            val here = bookmarkList.first().filter { onPage(it.totalProgression, at) }
-            if (here.isNotEmpty()) return@launch here.forEach(::removeBookmark)
-            val cfi = archive.await()?.let { withContext(io) { it.cfiForLocator(page.toJSON().toString()) } }
-            // Outlives the screen: the request must not be cancelled half way.
-            pendingScope.launch { bookmarks.add(accountId, bookId, page, cfi, bookmarkTitle(page.title, text)) }
-        }
+        // A tap while the last one is still saving is ignored: it would read the list before that save and add twice.
+        if (toggling?.isActive == true) return
+        // Outlives the screen: the request must not be cancelled half way.
+        toggling =
+            pendingScope.launch {
+                val here = bookmarkList.first().filter { it.isOn(span) }
+                if (here.isNotEmpty()) return@launch here.forEach { bookmarks.remove(it) }
+                val cfi = archive.await()?.let { withContext(io) { it.cfiForLocator(page.toJSON().toString()) } }
+                bookmarks.add(accountId, bookId, page, cfi, bookmarkTitle(page.title, text))
+            }
     }
 
     fun removeBookmark(row: BookmarkRow) {
@@ -387,8 +391,10 @@ class ReaderViewModel(
 
     override fun onCleared() {
         val lastFlush = flush
+        val lastToggle = toggling
         pendingScope.launch {
             lastFlush?.join() // the upload still reads the archive
+            lastToggle?.join() // so may a bookmark's CFI
             publication.await().getOrNull()?.close()
             withContext(io) { archive.await()?.close() }
         }

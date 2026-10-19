@@ -108,6 +108,8 @@ internal class FakeServer {
     var onPut: suspend () -> Unit = {}
     val gets = mutableListOf<String>()
     val puts = mutableListOf<String>()
+    val bookmarkPosts = mutableListOf<String>()
+    val bookmarkDeletes = mutableListOf<String>()
     val requests get() = gets.size + puts.size
 
     val api =
@@ -126,6 +128,20 @@ internal class FakeServer {
                         req.method == HttpMethod.Put && req.url.encodedPath == PROGRESS_PATH -> {
                             puts += String(req.body.toByteArray())
                             onPut()
+                            respond("", HttpStatusCode.NoContent)
+                        }
+
+                        req.method == HttpMethod.Get && req.url.encodedPath == "/api/v1/bookmarks/book/$BOOK" -> {
+                            respond("[]", HttpStatusCode.OK, jsonHeaders)
+                        }
+
+                        req.method == HttpMethod.Post && req.url.encodedPath == "/api/v1/bookmarks" -> {
+                            bookmarkPosts += String(req.body.toByteArray())
+                            respond("""{"id":${bookmarkPosts.size},"bookId":$BOOK}""", HttpStatusCode.OK, jsonHeaders)
+                        }
+
+                        req.method == HttpMethod.Delete && req.url.encodedPath.startsWith("/api/v1/bookmarks/") -> {
+                            bookmarkDeletes += req.url.encodedPath
                             respond("", HttpStatusCode.NoContent)
                         }
 
