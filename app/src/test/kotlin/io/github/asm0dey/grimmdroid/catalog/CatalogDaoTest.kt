@@ -27,9 +27,12 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class CatalogDaoTest {
@@ -141,6 +144,8 @@ class CatalogDaoTest {
             assertEquals(listOf(2L, 1L, 3L), ids(BookQuery(1, sort = BookSort.TITLE)))
             assertEquals(listOf(2L, 3L, 1L), ids(BookQuery(1, sort = BookSort.AUTHOR)))
             assertEquals(listOf(3L, 2L, 1L), ids(BookQuery(1, sort = BookSort.SERIES)))
+            dao.upsertBooks(listOf(book(4, added = 1)))
+            assertEquals(4L, ids(BookQuery(1, sort = BookSort.SERIES)).last())
         }
 
     @Test
@@ -211,5 +216,77 @@ class CatalogDaoTest {
                     assertEquals(t, 2L, it.getLong(0))
                 }
             }
+        }
+
+    private fun assertInvalidatedBy(
+        source: PagingSource<Int, BookRow>,
+        mutate: suspend () -> Unit,
+    ) = runBlocking {
+        load(source) // registers Room's table observer
+        val fired = CountDownLatch(1)
+        source.registerInvalidatedCallback { fired.countDown() }
+        mutate()
+        assertTrue(fired.await(5, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun booksPagingInvalidatesOnEachObservedTable() {
+        val q = BookQuery(1).toSql()
+        assertInvalidatedBy(dao.books(q)) { dao.upsertBooks(listOf(book(1))) }
+        assertInvalidatedBy(dao.books(q)) { dao.replaceShelfMembers(1, 1, false, listOf(1)) }
+        assertInvalidatedBy(dao.books(q)) {
+            // runInTransaction makes Room's tracker refresh on commit; raw execSQL alone would not.
+            db.runInTransaction {
+                db.openHelper.writableDatabase.execSQL("INSERT INTO DownloadEntity VALUES (1,1,5,'f','p',1,'DONE',1.0)")
+            }
+        }
+    }
+
+    @Test
+    fun searchPagingInvalidatesOnBookChange() {
+        assertInvalidatedBy(dao.search(1, "x*")) { dao.upsertBooks(listOf(book(1))) }
+    }
+
+    @Test
+    fun searchRowsCarryDownloadedFlag() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, title = "Dune"), book(2, title = "Dunes")))
+            db.openHelper.writableDatabase.execSQL(
+                "INSERT INTO DownloadEntity VALUES (1,1,5,'f','p',1,'${DownloadState.DONE.name}',1.0)",
+            )
+            assertEquals(listOf(true, false), load(dao.search(1, "dune*")).map { it.downloaded })
+        }
+
+    @Test
+    fun replaceLibrariesDropsRemovedOnes() =
+        runBlocking {
+            dao.replaceLibraries(1, listOf(LibraryEntity(1, 1, "A", 1), LibraryEntity(1, 2, "B", 1)))
+            dao.replaceLibraries(2, listOf(LibraryEntity(2, 1, "A", 1)))
+            dao.replaceLibraries(1, listOf(LibraryEntity(1, 2, "B2", 3)))
+            assertEquals(listOf(1L to 2L, 2L to 1L), pairs("LibraryEntity"))
+        }
+
+    @Test
+    fun replaceShelvesDropsRemovedShelvesAndTheirMembers() =
+        runBlocking {
+            dao.replaceShelves(1, false, listOf(ShelfEntity(1, 1, "S1", 1, false), ShelfEntity(1, 2, "S2", 1, false)))
+            dao.replaceShelves(1, true, listOf(ShelfEntity(1, 1, "M1", 1, true)))
+            dao.replaceShelves(2, false, listOf(ShelfEntity(2, 1, "S1", 1, false)))
+            for (a in listOf(1L, 2L)) dao.replaceShelfMembers(a, 1, false, listOf(1))
+            dao.replaceShelfMembers(1, 2, false, listOf(1))
+            dao.replaceShelfMembers(1, 1, true, listOf(1))
+            dao.replaceShelves(1, false, listOf(ShelfEntity(1, 1, "S1", 1, false)))
+            assertEquals(listOf(1L to 1L, 1L to 1L, 2L to 1L), pairs("ShelfEntity"))
+            // surviving: regular shelf 1 and magic shelf 1 of account 1, shelf 1 of account 2; shelf 2 members gone
+            assertEquals(listOf(1L to 1L, 1L to 1L, 2L to 1L), pairs("ShelfBookCrossRef", "accountId", "shelfId"))
+        }
+
+    private fun pairs(
+        table: String,
+        a: String = "accountId",
+        b: String = "id",
+    ): List<Pair<Long, Long>> =
+        db.openHelper.readableDatabase.query("SELECT $a, $b FROM $table ORDER BY $a, $b").use {
+            buildList { while (it.moveToNext()) add(it.getLong(0) to it.getLong(1)) }
         }
 }

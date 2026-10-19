@@ -35,7 +35,7 @@ abstract class CatalogDao {
 
     /** [ftsQuery] is an already-built FTS4 MATCH expression; it is bound, never concatenated. */
     @Query(
-        "SELECT b.*, $DOWNLOADED_EXISTS_DONE AS downloaded FROM BookEntity b WHERE b.accountId = :accountId " +
+        "SELECT b.*, $DOWNLOADED_EXISTS AS downloaded FROM BookEntity b WHERE b.accountId = :accountId " +
             "AND b.rowid IN (SELECT rowid FROM BookFts WHERE BookFts MATCH :ftsQuery) ORDER BY b.title COLLATE NOCASE, b.id",
     )
     abstract fun search(
@@ -100,6 +100,47 @@ abstract class CatalogDao {
         insertShelfMembers(bookIds.map { ShelfBookCrossRef(accountId, shelfId, magic, it) })
     }
 
+    @Query("DELETE FROM LibraryEntity WHERE accountId = :accountId AND id NOT IN (:keep)")
+    protected abstract suspend fun deleteLibrariesNotIn(
+        accountId: Long,
+        keep: List<Long>,
+    )
+
+    @Transaction
+    open suspend fun replaceLibraries(
+        accountId: Long,
+        libs: List<LibraryEntity>,
+    ) {
+        deleteLibrariesNotIn(accountId, libs.map { it.id })
+        upsertLibraries(libs)
+    }
+
+    @Query("DELETE FROM ShelfEntity WHERE accountId = :accountId AND magic = :magic AND id NOT IN (:keep)")
+    protected abstract suspend fun deleteShelvesNotIn(
+        accountId: Long,
+        magic: Boolean,
+        keep: List<Long>,
+    )
+
+    @Query("DELETE FROM ShelfBookCrossRef WHERE accountId = :accountId AND magic = :magic AND shelfId NOT IN (:keep)")
+    protected abstract suspend fun deleteShelfMembersNotIn(
+        accountId: Long,
+        magic: Boolean,
+        keep: List<Long>,
+    )
+
+    @Transaction
+    open suspend fun replaceShelves(
+        accountId: Long,
+        magic: Boolean,
+        shelves: List<ShelfEntity>,
+    ) {
+        val keep = shelves.map { it.id }
+        deleteShelvesNotIn(accountId, magic, keep)
+        deleteShelfMembersNotIn(accountId, magic, keep)
+        upsertShelves(shelves)
+    }
+
     @Query("DELETE FROM BookEntity WHERE accountId = :accountId")
     protected abstract suspend fun deleteBooks(accountId: Long)
 
@@ -124,6 +165,3 @@ abstract class CatalogDao {
         deleteDownloads(accountId)
     }
 }
-
-private const val DOWNLOADED_EXISTS_DONE =
-    "EXISTS (SELECT 1 FROM DownloadEntity d WHERE d.accountId = b.accountId AND d.bookId = b.id AND d.state = 'DONE')"

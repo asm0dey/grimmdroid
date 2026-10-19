@@ -25,7 +25,7 @@ enum class BookSort(
     ADDED("addedOn DESC"),
     TITLE("title COLLATE NOCASE ASC"),
     AUTHOR("authors COLLATE NOCASE ASC"),
-    SERIES("seriesName, seriesNumber"),
+    SERIES("seriesName IS NULL, seriesName COLLATE NOCASE, seriesNumber"),
 }
 
 data class BookQuery(
@@ -38,13 +38,13 @@ data class BookQuery(
     val sort: BookSort = BookSort.ADDED,
 )
 
+// Must match DownloadState.DONE.name (asserted in CatalogDaoTest); a constant so @Query can use it.
 internal const val DOWNLOADED_EXISTS =
-    "EXISTS (SELECT 1 FROM DownloadEntity d WHERE d.accountId = b.accountId AND d.bookId = b.id AND d.state = ?)"
+    "EXISTS (SELECT 1 FROM DownloadEntity d WHERE d.accountId = b.accountId AND d.bookId = b.id AND d.state = 'DONE')"
 
 /** Every value is a bound argument; only [BookSort.column] (a fixed enum constant) is spliced into the text. */
 fun BookQuery.toSql(): SimpleSQLiteQuery {
-    val done = DownloadState.DONE.name
-    val args = mutableListOf<Any?>(done, accountId)
+    val args = mutableListOf<Any?>(accountId)
     val where = StringBuilder("b.accountId = ?")
     libraryId?.let {
         where.append(" AND b.libraryId = ?")
@@ -65,7 +65,6 @@ fun BookQuery.toSql(): SimpleSQLiteQuery {
     }
     if (downloadedOnly) {
         where.append(" AND $DOWNLOADED_EXISTS")
-        args += done
     }
     val sql =
         "SELECT b.*, $DOWNLOADED_EXISTS AS downloaded FROM BookEntity b WHERE $where ORDER BY ${sort.column}, b.id"
