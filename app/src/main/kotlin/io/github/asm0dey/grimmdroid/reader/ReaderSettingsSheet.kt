@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -243,7 +244,8 @@ private fun SwitchRow(
     onChange: (Boolean) -> Unit,
 ) {
     Row(
-        Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
+        // The Switch has no callback of its own, so the row carries the minimum touch size.
+        Modifier.heightIn(min = 48.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -267,6 +269,7 @@ private fun StatusItems(
             Row(
                 Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp)
                     .toggleable(on, role = Role.Checkbox) { onChange(if (it) shown + item else shown - item) },
                 verticalAlignment = Alignment.CenterVertically,
             ) {

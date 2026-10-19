@@ -39,10 +39,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,6 +56,10 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.asm0dey.grimmdroid.R
 import kotlinx.coroutines.delay
 import java.text.DateFormat
@@ -284,24 +288,33 @@ private fun ProgressLine(
     }
 }
 
-/** The current time, updated on each minute. */
+/**
+ * The current time, updated on each minute while the screen is started. `delay` doesn't count device sleep, so each
+ * start reads the time afresh. [now] is the wall clock.
+ */
 @Composable
-fun minuteClock(): Long =
-    produceState(System.currentTimeMillis()) {
-        while (true) {
-            delay((MINUTE_MS - value % MINUTE_MS).milliseconds)
-            value = System.currentTimeMillis()
+fun minuteClock(now: () -> Long = System::currentTimeMillis): Long {
+    var time by remember { mutableLongStateOf(now()) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                time = now()
+                delay((MINUTE_MS - time % MINUTE_MS).milliseconds)
+            }
         }
-    }.value
+    }
+    return time
+}
 
 private const val MINUTE_MS = 60_000L
 
-/** The battery level in percent from the sticky battery broadcast; null until known. */
+/** The battery level in percent while the screen is started, from the sticky battery broadcast; null until known. */
 @Composable
 fun batteryPercent(): Int? {
     val context = LocalContext.current
     var percent by remember { mutableStateOf<Int?>(null) }
-    DisposableEffect(context) {
+    LifecycleStartEffect(context) {
         val receiver =
             object : BroadcastReceiver() {
                 override fun onReceive(
@@ -319,7 +332,7 @@ fun batteryPercent(): Int? {
                 filter,
                 ContextCompat.RECEIVER_NOT_EXPORTED,
             )?.let { percent = it.batteryPercent() }
-        onDispose { context.unregisterReceiver(receiver) }
+        onStopOrDispose { context.unregisterReceiver(receiver) }
     }
     return percent
 }
