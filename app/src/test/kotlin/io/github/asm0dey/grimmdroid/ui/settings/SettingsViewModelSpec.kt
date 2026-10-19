@@ -87,6 +87,9 @@ class SettingsViewModelSpec {
     private lateinit var sync: LibrarySync
     private val store = ViewModelStore()
     private val dropped = mutableListOf<Long>()
+    private var dropFails = false
+
+    @Volatile private var signOutFailures = 0
 
     @Volatile private var coverClears = 0
 
@@ -114,10 +117,14 @@ class SettingsViewModelSpec {
                         DownloadRepository(db.catalogDao(), { error("no network in this test") }, dir),
                         sync,
                         folderExport,
-                        dropClient = { dropped += it },
+                        dropClient = {
+                            if (dropFails) throw IllegalStateException("boom")
+                            dropped += it
+                        },
                         coverCacheSize = { 0L },
                         clearCoverCache = { coverClears++ },
                         appScope = scope,
+                        onSignOutFailed = { signOutFailures++ },
                     )
                 }
             }
@@ -223,5 +230,16 @@ class SettingsViewModelSpec {
             sweep.join()
             assertNull(db.catalogDao().book(id, 99).first())
             assertNull(db.catalogDao().book(id, BOOK).first())
+        }
+
+    @Test
+    fun failedSignOutIsReportedInsteadOfCrashing() =
+        runBlocking {
+            val (id, _) = accountWithBook()
+            dropFails = true
+            val job = vm.signOut(id, removeAccount = false)
+            job.join()
+            assertFalse(job.isCancelled)
+            assertEquals(1, signOutFailures)
         }
 }

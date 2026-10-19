@@ -109,6 +109,7 @@
     </plurals>
     <string name="section_accounts">Accounts</string>
     <string name="never_synced">Never synced</string>
+    <string name="sign_out_failed">Couldn\'t finish removing the account. Try again.</string>
     <string name="sync_now">Sync now</string>
     <string name="sign_out">Sign out</string>
     <string name="remove_action">Remove</string>

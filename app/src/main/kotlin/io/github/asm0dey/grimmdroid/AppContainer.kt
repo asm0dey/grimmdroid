@@ -18,6 +18,7 @@
 package io.github.asm0dey.grimmdroid
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
@@ -44,9 +45,11 @@ import io.github.asm0dey.grimmdroid.net.Connectivity
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import okio.Path.Companion.toOkioPath
 import java.util.concurrent.ConcurrentHashMap
@@ -59,7 +62,14 @@ class AppContainer(
     val appContext: Context get() = app
 
     /** Outlives every screen: for work a navigation away must not cancel (account removal). */
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val appScope =
+        CoroutineScope(
+            SupervisorJob() + Dispatchers.Default +
+                CoroutineExceptionHandler { _, e -> Log.e("AppContainer", "Background work failed: ${e::class.java.name}") },
+        )
+
+    /** One-shot: a sign-out or account removal failed part-way; AppNav shows a snackbar. */
+    val signOutFailures = Channel<Unit>(Channel.CONFLATED)
 
     val db: CatalogDb = Room.databaseBuilder(app, CatalogDb::class.java, "catalog.db").build()
 

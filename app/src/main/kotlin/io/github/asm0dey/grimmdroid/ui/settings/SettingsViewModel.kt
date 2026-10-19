@@ -19,6 +19,7 @@ package io.github.asm0dey.grimmdroid.ui.settings
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -37,6 +38,7 @@ import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import io.github.asm0dey.grimmdroid.sync.scheduleSync
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -69,6 +71,7 @@ class SettingsViewModel(
     private val clearCoverCache: () -> Unit,
     /** Runs sign-out: removal pops Settings (account switch or Onboarding reset), which would cancel viewModelScope mid-way. */
     private val appScope: CoroutineScope,
+    private val onSignOutFailed: () -> Unit = {},
 ) : ViewModel() {
     private fun <T> Flow<T>.state(initial: T) = stateIn(viewModelScope, SharingStarted.Eagerly, initial)
 
@@ -134,7 +137,17 @@ class SettingsViewModel(
     fun signOut(
         accountId: Long,
         removeAccount: Boolean,
-    ): Job = appScope.launch { signOutNow(accountId, removeAccount) }
+    ): Job =
+        appScope.launch {
+            try {
+                signOutNow(accountId, removeAccount)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Sign-out failed: ${e::class.java.name}") // the message could carry a URL or path
+                onSignOutFailed()
+            }
+        }
 
     /**
      * Keep: forget the tokens only; catalogue and downloads stay for a later sign-in. Remove: stop its work, delete its
@@ -166,6 +179,8 @@ class SettingsViewModel(
     }
 
     companion object {
+        private const val TAG = "SettingsViewModel"
+
         fun factory(container: AppContainer) =
             viewModelFactory {
                 initializer {
@@ -181,6 +196,7 @@ class SettingsViewModel(
                         { container.imageLoader.diskCache?.size ?: 0L },
                         container::clearCoverCache,
                         container.appScope,
+                        { container.signOutFailures.trySend(Unit) },
                     )
                 }
             }

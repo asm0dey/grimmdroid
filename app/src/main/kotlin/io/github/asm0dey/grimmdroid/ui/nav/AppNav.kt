@@ -83,6 +83,7 @@ import io.github.asm0dey.grimmdroid.ui.settings.SettingsScreen
 import io.github.asm0dey.grimmdroid.ui.settings.SettingsViewModel
 import io.github.asm0dey.grimmdroid.ui.shelves.ShelvesScreen
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 private enum class Tab(
@@ -149,6 +150,8 @@ fun AppNav(container: AppContainer) {
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val defaultPassword = stringResource(R.string.default_password)
+    val signOutFailed = stringResource(R.string.sign_out_failed)
+    LaunchedEffect(Unit) { container.signOutFailures.receiveAsFlow().collect { snackbar.showSnackbar(signOutFailed) } }
 
     // Removing the last account leaves nothing to show: start over at Onboarding (the start destination is frozen).
     LaunchedEffect(loaded.isEmpty()) {
