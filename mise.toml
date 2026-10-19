@@ -1,0 +1,35 @@
+# Tool versions for local dev and CI (jdx/mise-action). Renovate bumps these.
+# Java lives in .sdkmanrc so sdkman users (sdkman_auto_env) and mise read one pin; bump it by hand,
+# Renovate has no sdkman manager. Gradle is not here: ./gradlew pins it. The Android SDK is not
+# managed by mise either.
+[settings]
+idiomatic_version_file_enable_tools = ["java"]
+
+[tools]
+ruby = "3.4.11"
+actionlint = "1.7.12"
+
+# Thin wrappers: the commands themselves live in Gradle / fastlane.
+[tasks.setup]
+description = "Install Ruby gems (fastlane)"
+run = "bundle install"
+
+[tasks.test]
+description = "Unit tests via fastlane"
+run = "bundle exec fastlane test"
+
+[tasks.check]
+description = "Full gate: formatting, lint, unit tests"
+run = "./gradlew spotlessCheck lint testDebugUnitTest"
+
+[tasks.format]
+description = "Apply formatting and license headers"
+run = "./gradlew spotlessApply"
+
+[tasks.build]
+description = "Assemble the debug APK"
+run = "./gradlew assembleDebug"
+
+[tasks.lint-ci]
+description = "Lint GitHub Actions workflows"
+run = "actionlint"

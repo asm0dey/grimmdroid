@@ -6,10 +6,10 @@ Work in progress.
 
 ## Build
 
-Requires JDK 21 (BellSoft Liberica) and the Android SDK.
+Requires the Android SDK and [mise](https://mise.jdx.dev), which pins the toolchain (JDK 21 Liberica via `.sdkmanrc`, Ruby, actionlint). Run `mise install` once, then `mise tasks` lists the shortcuts.
 
 ```sh
-./gradlew spotlessCheck lint testDebugUnitTest   # merge gate
+mise run check                                   # merge gate (./gradlew spotlessCheck lint testDebugUnitTest)
 bundle exec fastlane test                        # same, via fastlane
 ```
 
