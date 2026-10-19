@@ -24,6 +24,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import android.net.Uri
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.export.AfterDownloadOutcome
 import io.github.asm0dey.grimmdroid.export.ExportActionActivity
@@ -95,9 +96,10 @@ private fun Context.exportAction(
     val intent =
         Intent(this, ExportActionActivity::class.java)
             .setAction(action)
+            .setData(Uri.fromFile(file))
             .putExtra(ExportActionActivity.EXTRA_PATH, file.path)
             .putExtra(ExportActionActivity.EXTRA_TITLE, title)
-    // Per book and action: PendingIntents ignore extras when deciding whether two are the same.
+    // The data URI makes each book's intent distinct: PendingIntents ignore extras when deciding whether two are the same.
     val pending = PendingIntent.getActivity(this, "$action:${file.path}".hashCode(), intent, PendingIntent.FLAG_IMMUTABLE)
     return Notification.Action.Builder(Icon.createWithResource(this, icon), getString(label), pending).build()
 }

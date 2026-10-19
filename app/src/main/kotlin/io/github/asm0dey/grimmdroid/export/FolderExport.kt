@@ -55,14 +55,20 @@ class FolderExport(
         accountId: Long,
         uri: Uri,
     ) {
-        context.contentResolver.takePersistableUriPermission(
-            uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-        )
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        context.contentResolver.takePersistableUriPermission(uri, flags)
+        val old = settings.folderUri(accountId).first()
+        if (old != null && old != uri) {
+            try {
+                context.contentResolver.releasePersistableUriPermission(old, flags)
+            } catch (_: SecurityException) {
+                // Already gone.
+            }
+        }
         settings.setFolderUri(accountId, uri)
     }
 
-    /** Copies [file] into the account's folder; an IOException during the copy leaves no partial file and propagates. */
+    /** Copies [file] into the account's folder; a failed copy or create throws IOException and leaves no partial file. */
     override suspend fun save(
         accountId: Long,
         file: File,
@@ -74,7 +80,7 @@ class FolderExport(
             val tree = DocumentFile.fromTreeUri(context, uri)
             if (tree == null || !tree.exists() || !tree.canWrite()) return@withContext FolderResult.FolderLost
             val name = uniqueName(tree.listFiles().mapNotNull { it.name }.toSet(), file.name)
-            val doc = tree.createFile(mimeFor(name), name) ?: return@withContext FolderResult.FolderLost
+            val doc = tree.createFile(mimeFor(name), name) ?: throw IOException("Cannot create $name")
             try {
                 val out = context.contentResolver.openOutputStream(doc.uri) ?: throw IOException("Cannot open ${doc.uri}")
                 out.use { o -> file.inputStream().use { it.copyTo(o) } }

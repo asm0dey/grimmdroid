@@ -32,7 +32,9 @@ class ExportActionActivity : Activity() {
         super.onCreate(savedInstanceState)
         val file = intent.getStringExtra(EXTRA_PATH)?.let(::File)
         try {
-            if (file != null) {
+            if (file == null || !file.isFile) {
+                toast(R.string.file_not_available)
+            } else {
                 val exporter = Exporter(this)
                 when (intent.action) {
                     ACTION_OPEN -> if (exporter.openWith(file) == ExportResult.NoApp) toast(R.string.no_app_to_open)

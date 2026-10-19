@@ -75,7 +75,7 @@ class DownloadWorker(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure(workDataOf(KEY_ERROR to downloadErrorCode(e))) // download() already marked the row FAILED; retry is from the UI
+            Result.failure(workDataOf(KEY_ERROR to downloadErrorCode(e))) // download() already settled the row; retry is from the UI
         }
     }
 

@@ -18,9 +18,9 @@
 package io.github.asm0dey.grimmdroid.export
 
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import java.io.File
-import java.io.IOException
 
 enum class AfterDownloadAction { NOTHING, OPEN, SAVE_TO_FOLDER }
 
@@ -69,13 +69,18 @@ class AfterDownload(
             }
         }
 
+    // A failed export must never turn a finished download into a failed worker.
     private suspend fun saveOrNull(
         accountId: Long,
         file: File,
     ): FolderResult? =
         try {
             folderExport.save(accountId, file)
-        } catch (_: IOException) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: SecurityException) {
+            FolderResult.FolderLost
+        } catch (_: Exception) {
             null
         }
 }

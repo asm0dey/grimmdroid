@@ -23,21 +23,26 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 
 class AfterDownloadSpec :
     FunSpec({
         val file = File("book.epub")
+        val scopes = mutableListOf<CoroutineScope>()
 
         class Fixture(
             action: AfterDownloadAction,
             val result: FolderResult = FolderResult.Saved("Books"),
+            val failure: Exception? = null,
         ) {
             var saves = 0
+            val scope = CoroutineScope(Dispatchers.IO)
             val settings =
                 SettingsStore(
-                    PreferenceDataStoreFactory.create(scope = CoroutineScope(Dispatchers.IO)) {
+                    PreferenceDataStoreFactory.create(scope = scope) {
                         Files.createTempDirectory("ds").resolve("s.preferences_pb").toFile()
                     },
                 )
@@ -50,10 +55,16 @@ class AfterDownloadSpec :
                             file: File,
                         ): FolderResult {
                             saves++
+                            failure?.let { throw it }
                             return result
                         }
                     },
                 )
+
+            init {
+                scopes += scope
+            }
+
             val ready = suspend { settings.setAfterDownload(action) }
         }
 
@@ -79,4 +90,18 @@ class AfterDownloadSpec :
             val f = Fixture(AfterDownloadAction.SAVE_TO_FOLDER, FolderResult.NeedsFolder).also { it.ready() }
             f.afterDownload.run(1, file) shouldBe AfterDownloadOutcome.NeedsFolder
         }
+
+        test("a revoked grant (SecurityException) is FolderLost, not a worker failure") {
+            val f = Fixture(AfterDownloadAction.SAVE_TO_FOLDER, failure = SecurityException()).also { it.ready() }
+            f.afterDownload.run(1, file) shouldBe AfterDownloadOutcome.FolderLost
+        }
+
+        test("any other save failure is SaveFailed, not a worker failure") {
+            for (e in listOf(IllegalStateException(), IOException(), UnsupportedOperationException())) {
+                val f = Fixture(AfterDownloadAction.SAVE_TO_FOLDER, failure = e).also { it.ready() }
+                f.afterDownload.run(1, file) shouldBe AfterDownloadOutcome.SaveFailed
+            }
+        }
+
+        afterSpec { scopes.forEach { it.cancel() } }
     })
