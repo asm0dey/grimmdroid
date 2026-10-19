@@ -22,6 +22,7 @@ import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import io.github.asm0dey.grimmdroid.catalog.CatalogDao
@@ -44,6 +45,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -207,6 +209,13 @@ class DownloadRepository(
                 .build(),
         )
     }
+
+    /** The book's latest download work: still queued before the worker writes a row; a failure's kind is [DownloadWorker.KEY_ERROR]. */
+    fun work(
+        context: Context,
+        accountId: Long,
+        bookId: Long,
+    ): Flow<WorkInfo?> = WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(workName(accountId, bookId)).map { it.lastOrNull() }
 
     /** The running worker's cancellation deletes the `.part` file and the row (see [download]). */
     fun cancel(

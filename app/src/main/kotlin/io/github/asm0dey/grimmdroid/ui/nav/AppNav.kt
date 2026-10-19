@@ -68,6 +68,8 @@ import io.github.asm0dey.grimmdroid.AppContainer
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.auth.OidcRedirects
 import io.github.asm0dey.grimmdroid.sync.SyncState
+import io.github.asm0dey.grimmdroid.ui.details.DetailsScreen
+import io.github.asm0dey.grimmdroid.ui.details.DetailsViewModel
 import io.github.asm0dey.grimmdroid.ui.downloads.DownloadsScreen
 import io.github.asm0dey.grimmdroid.ui.downloads.DownloadsViewModel
 import io.github.asm0dey.grimmdroid.ui.home.HomeScreen
@@ -120,7 +122,8 @@ fun AppNav(container: AppContainer) {
     LaunchedEffect(destination) { Tab.entries.firstOrNull { destination?.hasRoute(it.route::class) == true }?.let { tab = it } }
     val inShell = destination != null && !destination.hasRoute(Onboarding::class)
     val onLibrary = destination?.hasRoute(Library::class) == true
-    val ownHeader = onLibrary || destination?.hasRoute(Home::class) == true
+    // Library, Home and Details draw their own header under the banners instead of the app bar.
+    val ownHeader = onLibrary || destination?.hasRoute(Home::class) == true || destination?.hasRoute(Details::class) == true
     val onSearch = destination?.hasRoute(Search::class) == true
     val sync = current?.let { syncStates[it.id] }
     val lastSynced = current?.lastSyncedAt
@@ -153,10 +156,9 @@ fun AppNav(container: AppContainer) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             if (inShell && !onSearch) {
-                // Library and Home draw their own search bar and account button instead of the app bar.
                 Column(if (ownHeader) Modifier.statusBarsPadding() else Modifier) {
                     if (!ownHeader) {
-                        val shelf = backStackEntry?.takeIf { destination.hasRoute(ShelfBooks::class) }?.toRoute<ShelfBooks>()
+                        val shelf = backStackEntry.takeIf { destination.hasRoute(ShelfBooks::class) }?.toRoute<ShelfBooks>()
                         TopAppBar(
                             title = { Text(shelf?.name ?: stringResource(tab.label)) },
                             navigationIcon = {
@@ -202,7 +204,7 @@ fun AppNav(container: AppContainer) {
             }
         },
     ) { padding ->
-        // Placeholder bodies; Tasks 14–15 fill these in.
+        // Placeholder bodies; Task 15 fills these in.
         NavHost(nav, startDestination = start, modifier = Modifier.padding(padding)) {
             composable<Onboarding> {
                 OnboardingRoute(container) { isDefault ->
@@ -242,7 +244,17 @@ fun AppNav(container: AppContainer) {
                 val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.factory(container, ShelfScope(route.shelfId, route.magic)))
                 LibraryContent(vm, baseUrl, syncStatus, openBook)
             }
-            composable<Details> { Placeholder("Details") }
+            composable<Details> { entry ->
+                val vm: DetailsViewModel = viewModel(factory = DetailsViewModel.factory(container, entry.toRoute<Details>().bookId))
+                val accountId = current?.id
+                DetailsScreen(
+                    vm,
+                    baseUrl,
+                    snackbar,
+                    container.exporter,
+                    { uri -> accountId?.let { container.folderExport.setFolder(it, uri) } },
+                ) { nav.popBackStack() }
+            }
             composable<Search> {
                 val vm: SearchViewModel = viewModel(factory = SearchViewModel.factory(container))
                 SearchScreen(vm, baseUrl, openBook) { nav.popBackStack() }
