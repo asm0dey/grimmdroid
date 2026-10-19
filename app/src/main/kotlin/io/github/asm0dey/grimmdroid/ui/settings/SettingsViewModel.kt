@@ -166,6 +166,7 @@ class SettingsViewModel(
             sync.exclusive(accountId) {
                 catalog.deleteAccount(accountId)
                 accounts.remove(accountId, deleteDownloads = true)
+                sync.forget(accountId)
             }
         } else {
             accounts.signOut(accountId)

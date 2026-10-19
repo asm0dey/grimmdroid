@@ -67,6 +67,9 @@ class LibrarySync(
         block: suspend () -> T,
     ): T = locks.getOrPut(accountId) { Mutex() }.withLock { block() }
 
+    /** Drops [accountId]'s state; for account removal, which runs it inside [exclusive] so no sweep re-adds it. */
+    fun forget(accountId: Long) = states.update { it - accountId }
+
     /** Returns this run's final state; [state] may already show a later queued run. Unknown account ⇒ [SyncState.Idle]. */
     suspend fun sync(accountId: Long): SyncState =
         locks.getOrPut(accountId) { Mutex() }.withLock {

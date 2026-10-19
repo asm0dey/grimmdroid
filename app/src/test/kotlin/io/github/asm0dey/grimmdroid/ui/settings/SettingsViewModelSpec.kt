@@ -242,4 +242,15 @@ class SettingsViewModelSpec {
             assertFalse(job.isCancelled)
             assertEquals(1, signOutFailures)
         }
+
+    @Test
+    fun removalDropsTheAccountsSyncState() =
+        runBlocking {
+            val (id, _) = accountWithBook()
+            accounts.signOut(id)
+            sync.sync(id)
+            assertTrue(id in sync.state.value)
+            vm.signOutNow(id, removeAccount = true)
+            assertFalse(id in sync.state.value)
+        }
 }
