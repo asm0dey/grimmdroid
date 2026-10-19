@@ -26,8 +26,10 @@ import io.kotest.matchers.shouldBe
 import java.io.File
 import java.util.Locale
 
-private fun book(audiobook: Boolean = false) =
-    BookEntity(1, 7, "Moby Dick", "Herman Melville", null, null, null, null, null, null, null, "EPUB", null, null, null, audiobook, 1)
+private fun book(
+    audiobook: Boolean = false,
+    type: String = "EPUB",
+) = BookEntity(1, 7, "Moby Dick", "Herman Melville", null, null, null, null, null, null, null, type, null, null, null, audiobook, 1)
 
 private fun dl(
     state: DownloadState,
@@ -43,6 +45,7 @@ private data class Case(
     val download: DownloadEntity? = null,
     val fileExists: Boolean = false,
     val online: Boolean = true,
+    val type: String = "EPUB",
     val expected: (File) -> PrimaryAction,
 ) {
     override fun toString() = name
@@ -59,16 +62,24 @@ class DetailsStateSpec :
                 Case("audiobook", audiobook = true) { PrimaryAction.Audiobook },
                 Case("no permission", canDownload = false) { PrimaryAction.NoPermission },
                 Case("no permission even offline", canDownload = false, online = false) { PrimaryAction.NoPermission },
-                Case("admin without canDownload may download", canDownload = false, isAdmin = true) { PrimaryAction.Download },
+                Case(
+                    "admin without canDownload may download",
+                    canDownload = false,
+                    isAdmin = true,
+                ) { PrimaryAction.Download(readable = true) },
                 Case(
                     "done and on disk",
                     download = dl(DownloadState.DONE),
                     fileExists = true,
-                ) { PrimaryAction.Downloaded(it, sizeLabel(1_200_000)) },
+                ) { PrimaryAction.Downloaded(it, sizeLabel(1_200_000), readable = true) },
                 Case("done offline is still downloaded", download = dl(DownloadState.DONE), fileExists = true, online = false) {
-                    PrimaryAction.Downloaded(it, sizeLabel(1_200_000))
+                    PrimaryAction.Downloaded(it, sizeLabel(1_200_000), readable = true)
                 },
-                Case("done but deleted from disk", download = dl(DownloadState.DONE), fileExists = false) { PrimaryAction.Download },
+                Case(
+                    "done but deleted from disk",
+                    download = dl(DownloadState.DONE),
+                    fileExists = false,
+                ) { PrimaryAction.Download(readable = true) },
                 Case("queued", download = dl(DownloadState.QUEUED)) { PrimaryAction.Downloading(0.4f) },
                 Case("running", download = dl(DownloadState.RUNNING)) { PrimaryAction.Downloading(0.4f) },
                 Case(
@@ -78,13 +89,22 @@ class DetailsStateSpec :
                 ) { PrimaryAction.Downloading(0.4f) },
                 Case("offline", online = false) { PrimaryAction.Offline },
                 Case("failed offline", download = dl(DownloadState.FAILED), online = false) { PrimaryAction.Offline },
-                Case("failed retries", download = dl(DownloadState.FAILED)) { PrimaryAction.Download },
-                Case("not downloaded") { PrimaryAction.Download },
+                Case("failed retries", download = dl(DownloadState.FAILED)) { PrimaryAction.Download(readable = true) },
+                Case("not downloaded") { PrimaryAction.Download(readable = true) },
+                Case("epub type is matched case-insensitively", type = "epub") { PrimaryAction.Download(readable = true) },
+                Case("a pdf is not readable", type = "PDF") { PrimaryAction.Download(readable = false) },
             ) { c ->
                 val file = if (c.fileExists) existing else missing
                 val d = c.download?.copy(path = file.path)
-                primaryAction(book(c.audiobook), c.canDownload, c.isAdmin, d, d?.let { File(it.path) }, c.online) shouldBe c.expected(file)
+                primaryAction(book(c.audiobook, c.type), c.canDownload, c.isAdmin, d, d?.let { File(it.path) }, c.online) shouldBe
+                    c.expected(file)
             }
+        }
+
+        test("a downloaded pdf is not readable") {
+            val pdf = File.createTempFile("moby", ".pdf").apply { deleteOnExit() }
+            val d = dl(DownloadState.DONE, pdf.path)
+            primaryAction(book(type = "PDF"), true, false, d, pdf, true) shouldBe PrimaryAction.Downloaded(pdf, sizeLabel(1_200_000), false)
         }
 
         test("sizeLabel uses decimal units with one decimal") {

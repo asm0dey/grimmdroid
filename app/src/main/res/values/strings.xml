@@ -89,6 +89,9 @@
     <string name="download_action">Download</string>
     <string name="cancel_action">Cancel</string>
     <string name="open_with_action">Open with…</string>
+    <string name="read_action">Read</string>
+    <string name="download_only_action">Download only</string>
+    <string name="more_read_options">More options</string>
     <string name="no_download_permission">Your account can\'t download books</string>
     <string name="audiobook_unsupported">Audiobooks aren\'t supported yet</string>
     <string name="offline_reason">You\'re offline</string>

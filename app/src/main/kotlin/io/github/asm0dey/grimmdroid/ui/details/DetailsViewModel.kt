@@ -32,15 +32,18 @@ import io.github.asm0dey.grimmdroid.catalog.DownloadState
 import io.github.asm0dey.grimmdroid.download.DownloadWorker
 import io.github.asm0dey.grimmdroid.export.FolderResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -73,6 +76,18 @@ sealed interface DetailsEvent {
     ) : DetailsEvent
 
     data object DeleteFailed : DetailsEvent
+
+    /** Sent to the app-wide `opens` channel, not [DetailsViewModel.events]: AppNav opens the reader. */
+    data class Read(
+        val accountId: Long,
+        val bookId: Long,
+        val file: File,
+    ) : DetailsEvent
+
+    /** Sent to the app-wide `opens` channel, not [DetailsViewModel.events]: AppNav opens the file with another app. */
+    data class OpenWith(
+        val file: File,
+    ) : DetailsEvent
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -85,17 +100,21 @@ class DetailsViewModel(
     download: (accountId: Long, bookId: Long) -> Flow<DownloadEntity?>,
     work: (accountId: Long, bookId: Long) -> Flow<WorkInfo?>,
     private val loadDetail: suspend (AccountEntity, bookId: Long) -> BookDetailDto,
-    private val enqueue: (accountId: Long, bookId: Long, fileId: Long?, isPrimary: Boolean) -> Unit,
+    private val enqueue: (accountId: Long, bookId: Long, fileId: Long?, isPrimary: Boolean, readAfter: Boolean) -> Unit,
     private val cancelDownload: (accountId: Long, bookId: Long) -> Unit,
     private val delete: suspend (accountId: Long, bookId: Long) -> Unit,
     private val save: suspend (accountId: Long, file: File) -> FolderResult,
+    /** App-wide [DetailsEvent.Read] / [DetailsEvent.OpenWith] sink, collected by AppNav. */
+    private val opens: SendChannel<DetailsEvent>,
+    /** Outlives this ViewModel, so a read pressed before the download still opens after the user leaves the screen. */
+    private val pendingScope: CoroutineScope,
 ) : ViewModel() {
     private val detail = MutableStateFlow<BookDetailDto?>(null)
 
     // Pinned to the account the book was opened under: a switch must never re-query this book id in another account.
     private val account = accounts.map { list -> list.firstOrNull { it.id == accountId } }.distinctUntilChanged()
 
-    val state: StateFlow<DetailsState> =
+    private val states: Flow<DetailsState> =
         account
             .flatMapLatest { acc ->
                 if (acc == null) {
@@ -142,7 +161,9 @@ class DetailsViewModel(
                         )
                     }
                 }
-            }.stateIn(viewModelScope, SharingStarted.Eagerly, DetailsState())
+            }
+
+    val state: StateFlow<DetailsState> = states.stateIn(viewModelScope, SharingStarted.Eagerly, DetailsState())
 
     private val _events = Channel<DetailsEvent>(Channel.BUFFERED)
     val events: Flow<DetailsEvent> = _events.receiveAsFlow()
@@ -202,22 +223,66 @@ class DetailsViewModel(
         val s = state.value
         val acc = s.account ?: return
         val book = s.book ?: return
-        enqueue(acc.id, bookId, file?.id ?: book.primaryFileId, file?.isPrimary ?: true)
+        enqueue(acc.id, bookId, file?.id ?: book.primaryFileId, file?.isPrimary ?: true, false)
         if (share) {
             shareWhenDone = true
             sawDownloading = false
         }
     }
 
+    private var pendingOpen: Job? = null
+
+    /** Opens the book in the reader, downloading its primary file first if it isn't on the phone. */
+    fun read() {
+        val acc = state.value.account ?: return
+        open(readAfter = true) { DetailsEvent.Read(acc.id, bookId, it) }
+    }
+
+    fun openWith() = open(readAfter = false) { DetailsEvent.OpenWith(it) }
+
+    private fun open(
+        readAfter: Boolean,
+        event: (File) -> DetailsEvent,
+    ) {
+        val s = state.value
+        val acc = s.account ?: return
+        val book = s.book ?: return
+        when (val action = s.action) {
+            is PrimaryAction.Downloaded -> {
+                opens.trySend(event(action.file))
+            }
+
+            is PrimaryAction.Download -> {
+                enqueue(acc.id, bookId, book.primaryFileId, true, readAfter)
+                pendingOpen?.cancel()
+                pendingOpen =
+                    pendingScope.launch {
+                        var sawDownloading = false
+                        // Like the pending share: open once it lands, give up when the download ends any other way.
+                        val end =
+                            states.map { it.action }.first { a ->
+                                if (a is PrimaryAction.Downloading) sawDownloading = true
+                                a is PrimaryAction.Downloaded || (sawDownloading && a !is PrimaryAction.Downloading)
+                            }
+                        if (end is PrimaryAction.Downloaded) opens.send(event(end.file))
+                    }
+            }
+
+            else -> {}
+        }
+    }
+
     fun cancel() {
         val acc = state.value.account ?: return
         shareWhenDone = false
+        pendingOpen?.cancel()
         cancelDownload(acc.id, bookId)
     }
 
     fun deleteFromPhone() {
         val acc = state.value.account ?: return
         shareWhenDone = false
+        pendingOpen?.cancel()
         viewModelScope.launch {
             try {
                 delete(acc.id, bookId)
@@ -263,10 +328,12 @@ class DetailsViewModel(
                     repo::observe,
                     { a, b -> repo.work(app, a, b) },
                     { acc, id -> container.api(acc).book(id) },
-                    { a, b, file, primary -> repo.enqueue(app, a, b, file, primary) },
+                    { a, b, file, primary, read -> repo.enqueue(app, a, b, file, primary, read) },
                     { a, b -> repo.cancel(app, a, b) },
                     { a, b -> repo.delete(app, a, b) },
                     container.folderExport::save,
+                    container.bookOpens,
+                    container.appScope,
                 )
             }
         }

@@ -25,6 +25,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -33,14 +34,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -145,6 +149,9 @@ fun DetailsScreen(
                         exporter.share(event.file, event.title)
                     }
 
+                    // Sent to AppNav's app-wide channel instead, so they still open after this screen is gone.
+                    is DetailsEvent.Read, is DetailsEvent.OpenWith -> {}
+
                     DetailsEvent.DeleteFailed -> {
                         snackbar.showSnackbar(deleteFailed)
                     }
@@ -242,6 +249,8 @@ fun DetailsScreen(
                 onCancel = vm::cancel,
                 onOpen = { file -> if (exporter.openWith(file) == ExportResult.NoApp) scope.launch { snackbar.showSnackbar(noApp) } },
                 onSave = vm::saveToFolder,
+                onRead = vm::read,
+                onOpenWith = vm::openWith,
             )
         }
         About(book, s.detail)
@@ -333,11 +342,17 @@ private fun ActionArea(
     onCancel: () -> Unit,
     onOpen: (File) -> Unit,
     onSave: () -> Unit,
+    onRead: () -> Unit,
+    onOpenWith: () -> Unit,
 ) {
     val full = Modifier.fillMaxWidth().heightIn(min = 48.dp)
     when (action) {
-        PrimaryAction.Download -> {
-            Button(onDownload, full) { Text(stringResource(R.string.download_action)) }
+        is PrimaryAction.Download -> {
+            if (action.readable) {
+                ReadSplitButton(onRead, listOf(R.string.open_with_action to onOpenWith, R.string.download_only_action to onDownload))
+            } else {
+                Button(onDownload, full) { Text(stringResource(R.string.download_action)) }
+            }
         }
 
         is PrimaryAction.Downloading -> {
@@ -352,7 +367,11 @@ private fun ActionArea(
         }
 
         is PrimaryAction.Downloaded -> {
-            Button({ onOpen(action.file) }, full) { Text(stringResource(R.string.open_with_action)) }
+            if (action.readable) {
+                ReadSplitButton(onRead, listOf(R.string.open_with_action to { onOpen(action.file) }))
+            } else {
+                Button({ onOpen(action.file) }, full) { Text(stringResource(R.string.open_with_action)) }
+            }
             OutlinedButton(onSave, full) { Text(stringResource(R.string.save_to_folder_action)) }
             // Green from the mockup, at a tone readable on both light and dark surfaces.
             val green = if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) Color(0xFF86EFAC) else Color(0xFF15803D)
@@ -395,6 +414,37 @@ private fun ActionArea(
                 else -> R.string.download_failed
             }
         Text(stringResource(message), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** Read, with an attached ▾ that opens a menu of [items] (label to action). */
+@Composable
+private fun ReadSplitButton(
+    onRead: () -> Unit,
+    items: List<Pair<Int, () -> Unit>>,
+) {
+    var open by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Button(
+            onRead,
+            Modifier.weight(1f).heightIn(min = 48.dp),
+            shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp, topEnd = 4.dp, bottomEnd = 4.dp),
+        ) { Text(stringResource(R.string.read_action)) }
+        Box {
+            FilledIconButton(
+                { open = true },
+                Modifier.size(48.dp),
+                shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp, topEnd = 24.dp, bottomEnd = 24.dp),
+            ) { Icon(painterResource(R.drawable.ic_arrow_drop_down), stringResource(R.string.more_read_options)) }
+            DropdownMenu(open, onDismissRequest = { open = false }) {
+                items.forEach { (label, onClick) ->
+                    DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
+                        open = false
+                        onClick()
+                    })
+                }
+            }
+        }
     }
 }
 

@@ -206,6 +206,7 @@ class DownloadRepository(
         bookId: Long,
         fileId: Long?,
         isPrimary: Boolean,
+        readAfter: Boolean = false,
     ) {
         val input =
             workDataOf(
@@ -213,6 +214,7 @@ class DownloadRepository(
                 DownloadWorker.KEY_BOOK_ID to bookId,
                 DownloadWorker.KEY_FILE_ID to (fileId ?: -1L),
                 DownloadWorker.KEY_PRIMARY to isPrimary,
+                DownloadWorker.KEY_READ_AFTER to readAfter,
             )
         WorkManager.getInstance(context).enqueueUniqueWork(
             workName(accountId, bookId),

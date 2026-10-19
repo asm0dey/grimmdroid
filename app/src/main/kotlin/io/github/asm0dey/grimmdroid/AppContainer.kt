@@ -47,6 +47,7 @@ import io.github.asm0dey.grimmdroid.reader.PositionSync
 import io.github.asm0dey.grimmdroid.reader.enqueuePositionUpload
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
+import io.github.asm0dey.grimmdroid.ui.details.DetailsEvent
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +74,9 @@ class AppContainer(
 
     /** One-shot: a sign-out or account removal failed part-way; AppNav shows a snackbar. */
     val signOutFailures = Channel<Unit>(Channel.CONFLATED)
+
+    /** Books to open in the reader or another app ([DetailsEvent.Read] / [DetailsEvent.OpenWith]); AppNav opens them. */
+    val bookOpens = Channel<DetailsEvent>(Channel.BUFFERED)
 
     val db: CatalogDb = Room.databaseBuilder(app, CatalogDb::class.java, "catalog.db").build()
 

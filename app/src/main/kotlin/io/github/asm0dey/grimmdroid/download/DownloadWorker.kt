@@ -70,7 +70,8 @@ class DownloadWorker(
                 ) { nm.notify(notificationId, applicationContext.downloadProgressNotification(title, it)) }
             val outcome = host.afterDownload.run(accountId, file)
             // Different id from the foreground one, which WorkManager removes when the worker ends.
-            applicationContext.notifyDownloaded(notificationId + 1, title, file, outcome)
+            val readAfter = inputData.getBoolean(KEY_READ_AFTER, false)
+            applicationContext.notifyDownloaded(notificationId + 1, title, file, outcome, if (readAfter) accountId to bookId else null)
             Result.success()
         } catch (e: CancellationException) {
             throw e
@@ -99,6 +100,9 @@ class DownloadWorker(
         const val KEY_BOOK_ID = "bookId"
         const val KEY_FILE_ID = "fileId"
         const val KEY_PRIMARY = "isPrimary"
+
+        /** Read was pressed before the download: tapping the completion notification opens the reader. */
+        const val KEY_READ_AFTER = "readAfter"
 
         /** Output of a failed run: [ERROR_NO_PERMISSION], [ERROR_NETWORK] or [ERROR_OTHER]. */
         const val KEY_ERROR = "error"

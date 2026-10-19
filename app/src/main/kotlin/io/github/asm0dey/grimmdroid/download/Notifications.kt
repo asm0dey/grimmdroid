@@ -28,6 +28,7 @@ import android.net.Uri
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.export.AfterDownloadOutcome
 import io.github.asm0dey.grimmdroid.export.ExportActionActivity
+import io.github.asm0dey.grimmdroid.reader.ReaderActivity
 import java.io.File
 
 internal const val DOWNLOAD_CHANNEL = "downloads"
@@ -62,6 +63,8 @@ internal fun Context.notifyDownloaded(
     title: String,
     file: File,
     outcome: AfterDownloadOutcome,
+    /** (accountId, bookId) when the user asked to read the book: tapping the notification opens it in the reader. */
+    readBook: Pair<Long, Long>?,
 ) {
     val text =
         when (outcome) {
@@ -71,6 +74,12 @@ internal fun Context.notifyDownloaded(
             AfterDownloadOutcome.SaveFailed -> getString(R.string.save_failed)
             else -> null
         }
+    // The data URI keeps each book's intent distinct, like the actions below.
+    val read =
+        readBook?.let { (accountId, bookId) ->
+            val intent = ReaderActivity.intent(this, accountId, bookId, file).setData(Uri.fromFile(file))
+            PendingIntent.getActivity(this, "read:${file.path}".hashCode(), intent, PendingIntent.FLAG_IMMUTABLE)
+        }
     downloadChannel().notify(
         id,
         Notification
@@ -79,6 +88,7 @@ internal fun Context.notifyDownloaded(
             .setContentTitle(getString(R.string.download_done, title))
             .setContentText(text)
             .setAutoCancel(true)
+            .setContentIntent(read)
             .addAction(exportAction(ExportActionActivity.ACTION_OPEN, R.string.open_action, android.R.drawable.ic_menu_view, file, title))
             .addAction(
                 exportAction(ExportActionActivity.ACTION_SHARE, R.string.share_action, android.R.drawable.ic_menu_share, file, title),
