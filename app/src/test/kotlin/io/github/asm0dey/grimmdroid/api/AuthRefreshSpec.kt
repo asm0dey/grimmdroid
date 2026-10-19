@@ -20,13 +20,16 @@ package io.github.asm0dey.grimmdroid.api
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldNotContain
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.engine.mock.toByteArray
+import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
+import io.ktor.client.request.get
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -35,6 +38,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 private val jsonHeaders = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
@@ -183,5 +187,118 @@ class AuthRefreshSpec :
                     publishedDate = "1965-08-01",
                     categories = listOf("SF"),
                 )
+        }
+
+        test("refresh IOException surfaces as-is and does not sign out") {
+            val tokens = FakeTokens()
+            val api =
+                api(tokens) { request ->
+                    if (request.url.encodedPath == "/api/v1/auth/refresh") throw IOException("offline")
+                    respondError(HttpStatusCode.Unauthorized)
+                }
+            shouldThrow<IOException> { api.me() }.message shouldBe "offline"
+            tokens.expiredCalls shouldBe 0
+            tokens.tokens shouldBe Tokens("old", "r-old")
+        }
+
+        test("refresh 503 does not sign out") {
+            val tokens = FakeTokens()
+            val api =
+                api(tokens) { request ->
+                    if (request.url.encodedPath == "/api/v1/auth/refresh") {
+                        respondError(HttpStatusCode.ServiceUnavailable)
+                    } else {
+                        respondError(HttpStatusCode.Unauthorized)
+                    }
+                }
+            shouldThrow<IOException> { api.me() }
+            tokens.expiredCalls shouldBe 0
+        }
+
+        test("refresh 400 signs out") {
+            val tokens = FakeTokens()
+            val api =
+                api(tokens) { request ->
+                    if (request.url.encodedPath == "/api/v1/auth/refresh") {
+                        respondError(HttpStatusCode.BadRequest)
+                    } else {
+                        respondError(HttpStatusCode.Unauthorized)
+                    }
+                }
+            shouldThrow<SessionExpiredException> { api.me() }
+            tokens.expiredCalls shouldBe 1
+        }
+
+        test("401 that persists after a successful refresh signs out") {
+            val tokens = FakeTokens()
+            val api =
+                api(tokens) { request ->
+                    if (request.url.encodedPath == "/api/v1/auth/refresh") {
+                        respond("""{"accessToken":"new","refreshToken":"r-new"}""", HttpStatusCode.OK, jsonHeaders)
+                    } else {
+                        respondError(HttpStatusCode.Unauthorized)
+                    }
+                }
+            shouldThrow<SessionExpiredException> { api.me() }
+            tokens.expiredCalls shouldBe 1
+        }
+
+        test("two clients sharing one TokenSource refresh once") {
+            val tokens = FakeTokens()
+            val refreshes = AtomicInteger()
+            val handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData = { request ->
+                when {
+                    request.url.encodedPath == "/api/v1/auth/refresh" -> {
+                        refreshes.incrementAndGet()
+                        delay(50)
+                        if (request.body.toByteArray().decodeToString() == """{"refreshToken":"r-old"}""") {
+                            respond("""{"accessToken":"new","refreshToken":"r-new"}""", HttpStatusCode.OK, jsonHeaders)
+                        } else {
+                            respondError(HttpStatusCode.Unauthorized) // rotated token reused
+                        }
+                    }
+
+                    request.headers[HttpHeaders.Authorization] == "Bearer new" -> {
+                        respond(ME_JSON, HttpStatusCode.OK, jsonHeaders)
+                    }
+
+                    else -> {
+                        respondError(HttpStatusCode.Unauthorized)
+                    }
+                }
+            }
+            val ui = api(tokens, "https://two.example", handler)
+            val worker = api(tokens, "https://two.example", handler)
+            val results = coroutineScope { listOf(async { ui.me() }, async { worker.me() }).awaitAll() }
+            results.toSet() shouldBe setOf(AppUserInfo(isAdmin = true, canDownload = true))
+            refreshes.get() shouldBe 1
+            tokens.expiredCalls shouldBe 0
+        }
+
+        test("bearer token is not sent to, nor refreshed for, a foreign host") {
+            val tokens = FakeTokens()
+            val refreshes = AtomicInteger()
+            var foreignAuth: String? = "unset"
+            val client =
+                authedClient(
+                    "https://grim.example",
+                    tokens,
+                    MockEngine { request ->
+                        if (request.url.encodedPath == "/api/v1/auth/refresh") refreshes.incrementAndGet()
+                        foreignAuth = request.headers[HttpHeaders.Authorization]
+                        respondError(HttpStatusCode.Unauthorized)
+                    },
+                )
+            shouldThrow<ClientRequestException> { client.get("https://cdn.example/cover.jpg") }
+            foreignAuth shouldBe null
+            refreshes.get() shouldBe 0
+            tokens.expiredCalls shouldBe 0
+        }
+
+        test("secrets are redacted from toString") {
+            val t = Tokens("acc-SECRET-1", "ref-SECRET-2")
+            t.toString() shouldNotContain "SECRET"
+            LoginRequest("pavel", "pw-SECRET-3").toString() shouldNotContain "SECRET"
+            RefreshRequest("ref-SECRET-2").toString() shouldNotContain "SECRET"
         }
     })

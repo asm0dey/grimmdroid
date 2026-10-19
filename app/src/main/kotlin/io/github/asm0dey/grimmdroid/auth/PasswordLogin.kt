@@ -20,6 +20,7 @@ package io.github.asm0dey.grimmdroid.auth
 import io.github.asm0dey.grimmdroid.api.AppUserInfo
 import io.github.asm0dey.grimmdroid.api.LoginRequest
 import io.github.asm0dey.grimmdroid.api.Tokens
+import io.github.asm0dey.grimmdroid.api.tokens
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
@@ -75,7 +76,7 @@ class PasswordLogin(
                 }
 
                 else -> {
-                    val tokens = login.body<Tokens>()
+                    val tokens = login.tokens()
                     val me = client.get("$baseUrl/api/v1/app/users/me") { bearerAuth(tokens.accessToken) }
                     when {
                         me.status == HttpStatusCode.NotFound -> LoginResult.Unsupported(serverVersion)

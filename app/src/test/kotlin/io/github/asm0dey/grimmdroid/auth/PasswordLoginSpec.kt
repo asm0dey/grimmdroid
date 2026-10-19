@@ -22,6 +22,8 @@ import io.github.asm0dey.grimmdroid.api.Tokens
 import io.github.asm0dey.grimmdroid.api.httpClient
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldNotContain
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
@@ -81,5 +83,17 @@ class PasswordLoginSpec :
                 }
             PasswordLogin(httpClient(engine)).login("https://grim.example", "v3.0.0", "pavel", "pw") shouldBe
                 LoginResult.Unsupported("v3.0.0")
+        }
+
+        test("malformed token json does not leak the token into Failed") {
+            val engine = MockEngine { respond("""{"accessToken":"acc-SECRET-1","refreshToken":""", HttpStatusCode.OK, jsonHeaders) }
+            val result = PasswordLogin(httpClient(engine)).login("https://grim.example", "v3.5.0", "pavel", "pw")
+            val failed = result.shouldBeInstanceOf<LoginResult.Failed>()
+            generateSequence(failed.cause) { it.cause }.forEach { it.toString() shouldNotContain "SECRET" }
+            result.toString() shouldNotContain "SECRET"
+        }
+
+        test("Ok does not print tokens") {
+            LoginResult.Ok(Tokens("acc-SECRET-1", "ref-SECRET-2"), AppUserInfo()).toString() shouldNotContain "SECRET"
         }
     })

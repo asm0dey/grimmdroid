@@ -32,13 +32,19 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.expectSuccess
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 
 val GrimmoryJson =
     Json {
@@ -61,58 +67,94 @@ interface TokenSource {
 
 class SessionExpiredException : Exception("Session expired")
 
-// Installed before Auth so it wraps it: sees the response only after Auth's refresh-and-retry.
-private val SessionExpiry =
-    createClientPlugin("SessionExpiry") {
-        on(Send) { request ->
-            val call = proceed(request)
-            if (call.response.status == HttpStatusCode.Unauthorized && !request.attributes.contains(AuthCircuitBreaker)) {
-                throw SessionExpiredException()
-            }
-            call
-        }
+// Carries no cause: decoder messages quote the response body, which holds the tokens.
+class MalformedTokensException : IOException("Malformed token response")
+
+class RefreshFailedException(
+    status: HttpStatusCode,
+) : IOException("Token refresh failed: HTTP $status")
+
+suspend fun HttpResponse.tokens(): Tokens =
+    try {
+        body()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        throw MalformedTokensException()
     }
+
+// Process-wide, so separate clients for one server (UI, download worker) never spend the same rotating refresh token.
+private val refreshLocks = ConcurrentHashMap<String, Mutex>()
 
 fun authedClient(
     baseUrl: String,
     tokens: TokenSource,
     engine: HttpClientEngine = OkHttp.create(),
-): HttpClient =
-    HttpClient(engine) {
+): HttpClient {
+    val base = Url(baseUrl)
+    val refreshLock = refreshLocks.getOrPut(baseUrl) { Mutex() }
+
+    fun isBase(url: Url) = url.host == base.host && url.port == base.port
+
+    // Installed before Auth so it wraps it: sees the response only after Auth's refresh-and-retry.
+    val sessionExpiry =
+        createClientPlugin("SessionExpiry") {
+            on(Send) { request ->
+                val call = proceed(request)
+                if (call.response.status == HttpStatusCode.Unauthorized &&
+                    !request.attributes.contains(AuthCircuitBreaker) &&
+                    isBase(call.request.url)
+                ) {
+                    tokens.expired()
+                    throw SessionExpiredException()
+                }
+                call
+            }
+        }
+
+    return HttpClient(engine) {
         install(ContentNegotiation) { json(GrimmoryJson) }
         defaultRequest { url("$baseUrl/") } // trailing slash keeps a sub-path base for relative requests
         expectSuccess = true
-        install(SessionExpiry)
+        install(sessionExpiry)
         install(Auth) {
+            reAuthorizeOnResponse { it.status == HttpStatusCode.Unauthorized && isBase(it.call.request.url) }
             bearer {
+                sendWithoutRequest { isBase(it.url.build()) }
                 loadTokens { tokens.current()?.let { BearerTokens(it.accessToken, it.refreshToken) } }
+                // null = signed out (sessionExpiry then calls expired()); transient failures throw and keep the session.
                 refreshTokens {
-                    // Returning null (not throwing) lets Ktor's token holder hand the failure to concurrent waiters too.
-                    val fresh =
-                        oldTokens?.refreshToken?.let { refreshToken ->
-                            try {
-                                val response =
-                                    client.post("api/v1/auth/refresh") {
-                                        markAsRefreshTokenRequest()
-                                        expectSuccess = false
-                                        contentType(ContentType.Application.Json)
-                                        setBody(RefreshRequest(refreshToken))
-                                    }
-                                if (response.status.isSuccess()) response.body<Tokens>() else null
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
+                    refreshLock.withLock {
+                        val current = tokens.current() ?: return@withLock null
+                        if (current.accessToken != oldTokens?.accessToken) {
+                            // Another client already refreshed; the old refresh token is revoked server-side.
+                            return@withLock BearerTokens(current.accessToken, current.refreshToken)
+                        }
+                        val response =
+                            client.post("api/v1/auth/refresh") {
+                                markAsRefreshTokenRequest()
+                                expectSuccess = false
+                                contentType(ContentType.Application.Json)
+                                setBody(RefreshRequest(current.refreshToken))
+                            }
+                        when {
+                            response.status == HttpStatusCode.Unauthorized || response.status == HttpStatusCode.BadRequest -> {
                                 null
                             }
+
+                            !response.status.isSuccess() -> {
+                                throw RefreshFailedException(response.status)
+                            }
+
+                            else -> {
+                                val fresh = response.tokens()
+                                tokens.save(fresh)
+                                BearerTokens(fresh.accessToken, fresh.refreshToken)
+                            }
                         }
-                    if (fresh == null) {
-                        tokens.expired()
-                        null
-                    } else {
-                        tokens.save(fresh)
-                        BearerTokens(fresh.accessToken, fresh.refreshToken)
                     }
                 }
             }
         }
     }
+}

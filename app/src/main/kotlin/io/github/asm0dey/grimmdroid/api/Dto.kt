@@ -50,18 +50,24 @@ data class Tokens(
     val refreshToken: String,
     val expires: Long? = null,
     val isDefaultPassword: Boolean? = null,
-)
+) {
+    override fun toString() = "Tokens(accessToken=***, refreshToken=***, expires=$expires, isDefaultPassword=$isDefaultPassword)"
+}
 
 @Serializable
 data class LoginRequest(
     val username: String,
     val password: String,
-)
+) {
+    override fun toString() = "LoginRequest(username=$username, password=***)"
+}
 
 @Serializable
 data class RefreshRequest(
     val refreshToken: String,
-)
+) {
+    override fun toString() = "RefreshRequest(refreshToken=***)"
+}
 
 // Lombok's `boolean isAdmin` getter makes Jackson emit "admin"; accept both spellings.
 @OptIn(ExperimentalSerializationApi::class)
