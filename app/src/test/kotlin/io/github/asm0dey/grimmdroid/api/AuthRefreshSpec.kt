@@ -39,6 +39,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import java.io.IOException
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 
 private val jsonHeaders = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
@@ -62,6 +63,14 @@ private class FakeTokens(
         tokens = null
     }
 }
+
+/** An unsigned JWT whose payload is [payload]; only the payload is read client-side. */
+private fun jwt(payload: String): String {
+    val enc = Base64.getUrlEncoder().withoutPadding()
+    return listOf("""{"alg":"none"}""", payload).joinToString(".") { enc.encodeToString(it.encodeToByteArray()) } + ".sig"
+}
+
+private fun nowSeconds() = System.currentTimeMillis() / 1000
 
 private fun api(
     tokens: TokenSource,
@@ -300,5 +309,33 @@ class AuthRefreshSpec :
             t.toString() shouldNotContain "SECRET"
             LoginRequest("pavel", "pw-SECRET-3").toString() shouldNotContain "SECRET"
             RefreshRequest("ref-SECRET-2").toString() shouldNotContain "SECRET"
+        }
+
+        // Grimmory's refresh tokens carry nbf = iat + 2 min; refreshing earlier answers the same 401 as a revoked token.
+        test("refresh token not valid yet fails transiently without calling the server") {
+            val tokens = FakeTokens(Tokens("old", jwt("""{"nbf":${nowSeconds() + 120}}""")))
+            val refreshes = AtomicInteger()
+            val api =
+                api(tokens) { request ->
+                    if (request.url.encodedPath == "/api/v1/auth/refresh") refreshes.incrementAndGet()
+                    respondError(HttpStatusCode.Unauthorized)
+                }
+            shouldThrow<RefreshFailedException> { api.me() }
+            refreshes.get() shouldBe 0
+            tokens.expiredCalls shouldBe 0
+        }
+
+        test("refresh token within the server's clock skew, past nbf, or unreadable is sent") {
+            for (refresh in listOf(jwt("""{"nbf":${nowSeconds() + 30}}"""), jwt("""{"nbf":${nowSeconds() - 5}}"""), "opaque", jwt("[]"))) {
+                val tokens = FakeTokens(Tokens("old", refresh))
+                val refreshes = AtomicInteger()
+                val api =
+                    api(tokens) { request ->
+                        if (request.url.encodedPath == "/api/v1/auth/refresh") refreshes.incrementAndGet()
+                        respondError(HttpStatusCode.Unauthorized)
+                    }
+                shouldThrow<SessionExpiredException> { api.me() }
+                refreshes.get() shouldBe 1
+            }
         }
     })

@@ -43,7 +43,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import java.io.IOException
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 
 val GrimmoryJson =
@@ -71,8 +75,24 @@ class SessionExpiredException : Exception("Session expired")
 class MalformedTokensException : IOException("Malformed token response")
 
 class RefreshFailedException(
-    status: HttpStatusCode,
-) : IOException("Token refresh failed: HTTP $status")
+    message: String,
+) : IOException(message) {
+    constructor(status: HttpStatusCode) : this("Token refresh failed: HTTP $status")
+}
+
+// Grimmory accepts a refresh token from nbf minus 60 s of clock skew; before that it answers 401, which reads as revoked.
+private const val REFRESH_SKEW_SECONDS = 60
+
+/** The refresh token's `nbf` (epoch seconds), read without verifying it; null if absent or not a JWT. */
+private fun notBefore(token: String): Long? =
+    runCatching {
+        val payload = Base64.getUrlDecoder().decode(token.split('.')[1])
+        GrimmoryJson
+            .parseToJsonElement(payload.decodeToString())
+            .jsonObject["nbf"]
+            ?.jsonPrimitive
+            ?.longOrNull
+    }.getOrNull()
 
 suspend fun HttpResponse.tokens(): Tokens =
     try {
@@ -101,6 +121,10 @@ suspend fun refreshSession(
     refreshLocks.getOrPut(baseUrl) { Mutex() }.withLock {
         val current = tokens.current() ?: return@withLock null
         if (current.accessToken != staleAccess) return@withLock current
+        val nbf = notBefore(current.refreshToken)
+        if (nbf != null && nbf - REFRESH_SKEW_SECONDS > System.currentTimeMillis() / 1000) {
+            throw RefreshFailedException("Refresh token not valid yet") // transient: keeps the session
+        }
         val response = post(RefreshRequest(current.refreshToken))
         when {
             response.status == HttpStatusCode.Unauthorized || response.status == HttpStatusCode.BadRequest -> null
