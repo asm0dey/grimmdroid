@@ -62,6 +62,18 @@ class AccountRepository(
         return id
     }
 
+    suspend fun account(id: Long): AccountEntity? = dao.get(id)
+
+    suspend fun updatePermissions(
+        id: Long,
+        user: AppUserInfo,
+    ) = dao.setPermissions(id, user.canDownload, user.isAdmin)
+
+    suspend fun setLastSyncedAt(
+        id: Long,
+        at: Long,
+    ) = dao.setLastSyncedAt(id, at)
+
     suspend fun switchTo(id: Long) = settings.setCurrentAccountId(id)
 
     // shortcut: only the row and its tokens go here; Task 15 orchestrates catalogue and downloaded-file deletion (deleteDownloads).

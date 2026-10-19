@@ -78,6 +78,7 @@ dependencies {
     implementation(libs.androidx.paging.runtime)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime.ktx)
 
     testImplementation(libs.kotest.runner.junit6)
     testImplementation(libs.kotest.assertions.core)
@@ -86,6 +87,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
+    testImplementation(libs.androidx.work.testing)
     testRuntimeOnly(libs.junit.vintage.engine)
     testRuntimeOnly(libs.junit.platform.launcher)
 }

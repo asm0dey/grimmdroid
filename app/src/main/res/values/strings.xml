@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Grimmdroid</string>
+    <string name="sync_notification">Syncing library</string>
 </resources>

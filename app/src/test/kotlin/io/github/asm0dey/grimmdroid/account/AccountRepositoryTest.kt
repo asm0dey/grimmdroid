@@ -172,4 +172,17 @@ class AccountRepositoryTest {
             repo.remove(a, deleteDownloads = true)
             assertNull(repo.current.first())
         }
+
+    @Test
+    fun permissionsAndLastSyncedAtAreStored() =
+        runBlocking {
+            val id = add("https://a")
+            repo.updatePermissions(id, AppUserInfo(isAdmin = true, canDownload = false))
+            repo.setLastSyncedAt(id, 42)
+            val a = repo.account(id)!!
+            assertFalse(a.canDownload)
+            assertTrue(a.isAdmin)
+            assertEquals(42L, a.lastSyncedAt)
+            assertEquals(tokens, repo.tokenSource(id).current())
+        }
 }
