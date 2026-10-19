@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.map
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+enum class Layout { GRID, LIST }
+
 class SettingsStore(
     private val store: DataStore<Preferences>,
 ) {
@@ -59,6 +61,12 @@ class SettingsStore(
         store.edit { it[DYNAMIC_COLOR] = enabled }
     }
 
+    val libraryLayout: Flow<Layout> = store.data.map { p -> Layout.entries.firstOrNull { it.name == p[LAYOUT] } ?: Layout.GRID }
+
+    suspend fun setLibraryLayout(layout: Layout) {
+        store.edit { it[LAYOUT] = layout.name }
+    }
+
     /** The tree URI the user picked for [accountId]'s saved books, if any. */
     fun folderUri(accountId: Long): Flow<Uri?> = store.data.map { p -> p[folderKey(accountId)]?.let(Uri::parse) }
 
@@ -73,6 +81,7 @@ class SettingsStore(
         val AFTER_DOWNLOAD = stringPreferencesKey("after_download")
         val THEME = stringPreferencesKey("theme")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val LAYOUT = stringPreferencesKey("library_layout")
 
         fun folderKey(accountId: Long) = stringPreferencesKey("folder_uri_$accountId")
 

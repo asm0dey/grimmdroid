@@ -73,6 +73,12 @@ abstract class CatalogDao {
         limit: Int = 20,
     ): Flow<List<BookEntity>>
 
+    @Query("SELECT * FROM LibraryEntity WHERE accountId = :accountId ORDER BY name COLLATE NOCASE, id")
+    abstract fun libraries(accountId: Long): Flow<List<LibraryEntity>>
+
+    @Query("SELECT * FROM ShelfEntity WHERE accountId = :accountId ORDER BY name COLLATE NOCASE, id")
+    abstract fun shelves(accountId: Long): Flow<List<ShelfEntity>>
+
     @Upsert
     abstract suspend fun upsertLibraries(libraries: List<LibraryEntity>)
 

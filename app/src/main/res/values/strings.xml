@@ -42,4 +42,29 @@
     <string name="sign_in_footer">After sign-in your library syncs in the background. You can browse right away.</string>
     <string name="no_sign_in_method">This server allows neither password nor SSO sign-in. Ask its admin to enable one.</string>
     <string name="default_password">You\'re using the default password. Change it in the Grimmory web UI.</string>
+    <string name="search_books">Search books</string>
+    <string name="all_libraries">All</string>
+    <string name="sort">Sort</string>
+    <string name="sort_title">Title</string>
+    <string name="sort_author">Author</string>
+    <string name="sort_added">Recently added</string>
+    <string name="sort_series">Series</string>
+    <string name="sort_selected">Selected</string>
+    <string name="filter">Filter</string>
+    <string name="format">Format</string>
+    <string name="downloaded_only">Downloaded only</string>
+    <string name="list_view">List view</string>
+    <string name="grid_view">Grid view</string>
+    <string name="no_books">No books here</string>
+    <string name="badge_downloaded">Downloaded</string>
+    <string name="badge_audiobook">Audiobook</string>
+    <string name="sync_running">Syncing…</string>
+    <string name="synced_at">Synced %1$s</string>
+    <string name="shelves_section">Shelves</string>
+    <string name="magic_shelves_section">Magic shelves</string>
+    <string name="no_shelves">No shelves on this server yet</string>
+    <plurals name="book_count">
+        <item quantity="one">%d book</item>
+        <item quantity="other">%d books</item>
+    </plurals>
 </resources>

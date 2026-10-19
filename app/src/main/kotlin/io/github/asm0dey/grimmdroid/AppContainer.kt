@@ -21,12 +21,16 @@ import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
+import coil3.ImageLoader
+import coil3.disk.DiskCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.account.AccountRepository
 import io.github.asm0dey.grimmdroid.account.KeystoreTokenCipher
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
 import io.github.asm0dey.grimmdroid.api.ServerProbe
 import io.github.asm0dey.grimmdroid.api.authedClient
+import io.github.asm0dey.grimmdroid.api.coverAuthInterceptor
 import io.github.asm0dey.grimmdroid.api.httpClient
 import io.github.asm0dey.grimmdroid.auth.OidcLogin
 import io.github.asm0dey.grimmdroid.auth.PasswordLogin
@@ -40,6 +44,8 @@ import io.github.asm0dey.grimmdroid.net.Connectivity
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import io.ktor.client.HttpClient
+import okhttp3.OkHttpClient
+import okio.Path.Companion.toOkioPath
 import java.util.concurrent.ConcurrentHashMap
 
 /** Every app-wide object, built once by [GrimmdroidApp]. */
@@ -86,4 +92,21 @@ class AppContainer(
     val exporter = Exporter(app)
     val folderExport = FolderExport(app, settings)
     val afterDownload = AfterDownload(settings, folderExport)
+
+    val imageLoader: ImageLoader =
+        ImageLoader
+            .Builder(app)
+            .components {
+                add(
+                    OkHttpNetworkFetcherFactory(
+                        callFactory = { OkHttpClient.Builder().addInterceptor(coverAuthInterceptor(accounts)).build() },
+                    ),
+                )
+            }.diskCache {
+                DiskCache
+                    .Builder()
+                    .directory(app.cacheDir.resolve("covers").toOkioPath())
+                    .maxSizeBytes(250L * 1024 * 1024)
+                    .build()
+            }.build()
 }

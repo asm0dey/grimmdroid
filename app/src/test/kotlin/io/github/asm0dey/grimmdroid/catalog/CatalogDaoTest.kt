@@ -22,6 +22,7 @@ import androidx.paging.PagingSource
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.asm0dey.grimmdroid.ui.search.ftsQuery
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -282,6 +283,28 @@ class CatalogDaoTest {
             assertEquals(listOf(1L to 1L, 1L to 1L, 2L to 1L), pairs("ShelfEntity"))
             // surviving: regular shelf 1 and magic shelf 1 of account 1, shelf 1 of account 2; shelf 2 members gone
             assertEquals(listOf(1L to 1L, 1L to 1L, 2L to 1L), pairs("ShelfBookCrossRef", "accountId", "shelfId"))
+        }
+
+    @Test
+    fun ftsQueryKeepsOperatorsAndSyntaxOutOfMatch() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, title = "Not a Number", authors = "B Adams"), book(2, title = "Xenia", authors = "A")))
+            // each would be a syntax error or an operator if it reached MATCH raw
+            for ((input, expected) in listOf("a:b" to listOf(1L), "NOT" to listOf(1L), "(x" to listOf(2L), "\"num*" to listOf(1L))) {
+                assertEquals(input, expected, load(dao.search(1, ftsQuery(input))).map { it.book.id })
+            }
+        }
+
+    @Test
+    fun librariesAndShelvesAreListedPerAccountByName() =
+        runBlocking {
+            dao.replaceLibraries(1, listOf(LibraryEntity(1, 1, "b", 1), LibraryEntity(1, 2, "A", 1)))
+            dao.replaceLibraries(2, listOf(LibraryEntity(2, 3, "C", 1)))
+            dao.replaceShelves(1, false, listOf(ShelfEntity(1, 1, "z", 1, false)))
+            dao.replaceShelves(1, true, listOf(ShelfEntity(1, 2, "Y", 1, true)))
+            dao.replaceShelves(2, false, listOf(ShelfEntity(2, 3, "X", 1, false)))
+            assertEquals(listOf(2L, 1L), dao.libraries(1).first().map { it.id })
+            assertEquals(listOf("Y", "z"), dao.shelves(1).first().map { it.name })
         }
 
     private fun pairs(
