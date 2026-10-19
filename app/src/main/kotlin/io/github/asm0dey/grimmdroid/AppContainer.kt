@@ -43,6 +43,8 @@ import io.github.asm0dey.grimmdroid.export.AfterDownload
 import io.github.asm0dey.grimmdroid.export.Exporter
 import io.github.asm0dey.grimmdroid.export.FolderExport
 import io.github.asm0dey.grimmdroid.net.Connectivity
+import io.github.asm0dey.grimmdroid.reader.PositionSync
+import io.github.asm0dey.grimmdroid.reader.enqueuePositionUpload
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import io.ktor.client.HttpClient
@@ -113,6 +115,10 @@ class AppContainer(
     val librarySync =
         LibrarySync(db.catalogDao(), accounts, ::api, System::currentTimeMillis) { accountId, bookId ->
             downloadRepository.delete(app, accountId, bookId)
+        }
+    val positionSync =
+        PositionSync(db.readerDao(), { id -> api(checkNotNull(accounts.account(id)) { "No account $id" }) }) { id ->
+            enqueuePositionUpload(app, id)
         }
     val exporter = Exporter(app)
     val folderExport = FolderExport(app, settings)

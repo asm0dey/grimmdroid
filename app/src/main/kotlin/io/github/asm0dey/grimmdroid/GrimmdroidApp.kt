@@ -21,12 +21,14 @@ import android.app.Application
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import io.github.asm0dey.grimmdroid.download.DownloadHost
+import io.github.asm0dey.grimmdroid.reader.PositionUploadHost
 import io.github.asm0dey.grimmdroid.sync.SyncHost
 
 class GrimmdroidApp :
     Application(),
     SyncHost,
     DownloadHost,
+    PositionUploadHost,
     SingletonImageLoader.Factory {
     // Lazy: Robolectric tests start this Application without touching the container.
     val container by lazy { AppContainer(this) }
@@ -34,6 +36,9 @@ class GrimmdroidApp :
     override val librarySync get() = container.librarySync
     override val downloadRepository get() = container.downloadRepository
     override val afterDownload get() = container.afterDownload
+    override val positionSync get() = container.positionSync
+    override val readerDao get() = container.db.readerDao()
+    override val accounts get() = container.accounts
 
     override fun newImageLoader(context: PlatformContext) = container.imageLoader
 }

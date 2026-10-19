@@ -35,6 +35,7 @@ import io.github.asm0dey.grimmdroid.download.DownloadRepository
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import io.github.asm0dey.grimmdroid.export.FolderExport
 import io.github.asm0dey.grimmdroid.reader.ReaderDao
+import io.github.asm0dey.grimmdroid.reader.positionUploadWork
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
@@ -162,6 +163,7 @@ class SettingsViewModel(
         val wm = WorkManager.getInstance(app)
         wm.cancelUniqueWork("sync-$accountId").await()
         wm.cancelUniqueWork("sync-$accountId-now").await()
+        wm.cancelUniqueWork(positionUploadWork(accountId)).await()
         downloads.stopAll(app, accountId, deleteFiles = removeAccount)
         if (removeAccount) {
             // A sweep still running in this process would re-insert catalogue rows after the delete.

@@ -28,11 +28,11 @@ import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-private fun xhtml(body: String) =
+internal fun xhtml(body: String) =
     """<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>T</title></head>""" +
         "<body>$body</body></html>"
 
-private fun tinyEpub(
+internal fun tinyEpub(
     c1: String = xhtml("<p>One</p>"),
     c2: String = xhtml("""<p id="a">Alpha</p><p>Beta</p><div><p>Gamma</p></div>"""),
 ): File =

@@ -36,6 +36,31 @@ abstract class ReaderDao {
     @Upsert
     abstract suspend fun upsertPosition(p: ReadingPosition)
 
+    /** Upserts [p], but a position already waiting for a FORCE upload keeps FORCE. */
+    @Transaction
+    open suspend fun savePosition(p: ReadingPosition) {
+        val force = position(p.accountId, p.bookId)?.pending == PendingUpload.FORCE
+        upsertPosition(if (force) p.copy(pending = PendingUpload.FORCE) else p)
+    }
+
+    @Query("UPDATE ReadingPosition SET pending = 'FORCE' WHERE accountId = :accountId AND bookId = :bookId")
+    abstract suspend fun forcePosition(
+        accountId: Long,
+        bookId: Long,
+    )
+
+    /** Clears pending only while the row is still the uploaded one, so a position saved during the upload stays pending. */
+    @Query(
+        "UPDATE ReadingPosition SET pending = 'NONE' WHERE accountId = :accountId AND bookId = :bookId " +
+            "AND updatedAt = :updatedAt AND locatorJson = :locatorJson",
+    )
+    abstract suspend fun markUploaded(
+        accountId: Long,
+        bookId: Long,
+        updatedAt: Long,
+        locatorJson: String,
+    )
+
     @Query("SELECT * FROM ReadingPosition WHERE pending != 'NONE'")
     abstract suspend fun pendingPositions(): List<ReadingPosition>
 
