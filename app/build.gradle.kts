@@ -65,6 +65,7 @@ android {
                 // Robolectric's Android 17 (SDK 37) sandbox reaches into jdk.internal.access.
                 it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
                 it.exclude("io/github/asm0dey/grimmdroid/integration/**")
+                it.systemProperty("grimmdroid.fixtures", rootProject.file("integration/fixtures").path)
             }
         }
     }
