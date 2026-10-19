@@ -161,7 +161,7 @@ fun AppNav(container: AppContainer) {
     val noApp = stringResource(R.string.no_app_to_open)
     // Here rather than on Details, so a book downloaded for reading opens even after the user left that screen.
     LaunchedEffect(Unit) {
-        container.bookOpens.receiveAsFlow().collect { event ->
+        container.bookOpens.collect { event ->
             // In the background the download's notification carries the read instead.
             if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@collect
             when (event) {

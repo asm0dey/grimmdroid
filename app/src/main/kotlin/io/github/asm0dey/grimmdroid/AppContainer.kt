@@ -54,6 +54,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import okio.Path.Companion.toOkioPath
 import java.util.concurrent.ConcurrentHashMap
@@ -75,8 +76,11 @@ class AppContainer(
     /** One-shot: a sign-out or account removal failed part-way; AppNav shows a snackbar. */
     val signOutFailures = Channel<Unit>(Channel.CONFLATED)
 
-    /** Books to open in the reader or another app ([DetailsEvent.Read] / [DetailsEvent.OpenWith]); AppNav opens them. */
-    val bookOpens = Channel<DetailsEvent>(Channel.BUFFERED)
+    /**
+     * Books to open in the reader or another app ([DetailsEvent.Read] / [DetailsEvent.OpenWith]); AppNav opens them.
+     * No replay: with no UI collecting, an open is dropped (the notification carries it) rather than popping up later.
+     */
+    val bookOpens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
 
     val db: CatalogDb = Room.databaseBuilder(app, CatalogDb::class.java, "catalog.db").build()
 

@@ -35,8 +35,8 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
@@ -48,8 +48,6 @@ import kotlinx.coroutines.test.setMain
 import java.io.File
 import java.io.IOException
 import java.util.UUID
-
-private fun <T> Channel<T>.drain(): List<T> = generateSequence { tryReceive().getOrNull() }.toList()
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailsViewModelSpec :
@@ -75,7 +73,7 @@ class DetailsViewModelSpec :
             books: Flow<BookEntity?> = flowOf(book),
             load: suspend (Long) -> BookDetailDto = { BookDetailDto(it) },
             readAfter: MutableList<Boolean> = mutableListOf(),
-            opens: Channel<DetailsEvent> = Channel(Channel.BUFFERED),
+            opens: MutableSharedFlow<DetailsEvent> = MutableSharedFlow(extraBufferCapacity = 1),
             pendingScope: CoroutineScope = CoroutineScope(dispatcher),
         ) = DetailsViewModel(
             1,
@@ -124,7 +122,9 @@ class DetailsViewModelSpec :
                 val rows = MutableStateFlow<DownloadEntity?>(null)
                 val enqueued = mutableListOf<Long?>()
                 val readAfter = mutableListOf<Boolean>()
-                val opens = Channel<DetailsEvent>(Channel.BUFFERED)
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
                 val vm = vm(rows, enqueued, readAfter = readAfter, opens = opens, pendingScope = backgroundScope)
                 vm.read()
                 enqueued shouldBe listOf(42L)
@@ -132,20 +132,22 @@ class DetailsViewModelSpec :
                 rows.value = row(DownloadState.RUNNING)
                 rows.value = row(DownloadState.DONE)
                 rows.value = row(DownloadState.DONE).copy(sizeBytes = 11)
-                opens.drain() shouldBe listOf(DetailsEvent.Read(1, 7, file))
+                opened shouldBe listOf(DetailsEvent.Read(1, 7, file))
             }
         }
 
         test("cancelling drops the pending read") {
             runTest(dispatcher) {
                 val rows = MutableStateFlow<DownloadEntity?>(null)
-                val opens = Channel<DetailsEvent>(Channel.BUFFERED)
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
                 val vm = vm(rows, opens = opens, pendingScope = backgroundScope)
                 vm.read()
                 rows.value = row(DownloadState.RUNNING)
                 vm.cancel()
                 rows.value = row(DownloadState.DONE)
-                opens.drain() shouldBe emptyList()
+                opened shouldBe emptyList()
             }
         }
 
@@ -153,32 +155,49 @@ class DetailsViewModelSpec :
             runTest(dispatcher) {
                 val rows = MutableStateFlow<DownloadEntity?>(null)
                 val readAfter = mutableListOf<Boolean>()
-                val opens = Channel<DetailsEvent>(Channel.BUFFERED)
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
                 val vm = vm(rows, readAfter = readAfter, opens = opens, pendingScope = backgroundScope)
                 vm.openWith()
                 readAfter shouldBe listOf(false)
                 rows.value = row(DownloadState.RUNNING)
                 rows.value = row(DownloadState.DONE)
-                opens.drain() shouldBe listOf(DetailsEvent.OpenWith(file))
+                opened shouldBe listOf(DetailsEvent.OpenWith(file))
             }
         }
 
         test("read on a downloaded book opens it at once without downloading") {
             runTest(dispatcher) {
                 val enqueued = mutableListOf<Long?>()
-                val opens = Channel<DetailsEvent>(Channel.BUFFERED)
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
                 val vm = vm(MutableStateFlow(row(DownloadState.DONE)), enqueued, opens = opens, pendingScope = backgroundScope)
                 vm.read()
                 vm.openWith()
                 enqueued shouldBe emptyList()
-                opens.drain() shouldBe listOf(DetailsEvent.Read(1, 7, file), DetailsEvent.OpenWith(file))
+                opened shouldBe listOf(DetailsEvent.Read(1, 7, file), DetailsEvent.OpenWith(file))
+            }
+        }
+
+        test("an open with nobody collecting is dropped, not delivered to a later collector") {
+            runTest(dispatcher) {
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val vm = vm(MutableStateFlow(row(DownloadState.DONE)), opens = opens, pendingScope = backgroundScope)
+                vm.read()
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
+                opened shouldBe emptyList()
             }
         }
 
         test("a pending read outlives the details screen") {
             runTest(dispatcher) {
                 val rows = MutableStateFlow<DownloadEntity?>(null)
-                val opens = Channel<DetailsEvent>(Channel.BUFFERED)
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
                 val store = ViewModelStore()
                 val vm =
                     ViewModelProvider.create(
@@ -189,7 +208,7 @@ class DetailsViewModelSpec :
                 rows.value = row(DownloadState.RUNNING)
                 store.clear()
                 rows.value = row(DownloadState.DONE)
-                opens.drain() shouldBe listOf(DetailsEvent.Read(1, 7, file))
+                opened shouldBe listOf(DetailsEvent.Read(1, 7, file))
             }
         }
 

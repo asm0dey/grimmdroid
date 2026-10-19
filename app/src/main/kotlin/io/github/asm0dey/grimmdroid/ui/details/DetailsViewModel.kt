@@ -36,8 +36,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -77,14 +77,14 @@ sealed interface DetailsEvent {
 
     data object DeleteFailed : DetailsEvent
 
-    /** Sent to the app-wide `opens` channel, not [DetailsViewModel.events]: AppNav opens the reader. */
+    /** Sent to the app-wide `opens` flow, not [DetailsViewModel.events]: AppNav opens the reader. */
     data class Read(
         val accountId: Long,
         val bookId: Long,
         val file: File,
     ) : DetailsEvent
 
-    /** Sent to the app-wide `opens` channel, not [DetailsViewModel.events]: AppNav opens the file with another app. */
+    /** Sent to the app-wide `opens` flow, not [DetailsViewModel.events]: AppNav opens the file with another app. */
     data class OpenWith(
         val file: File,
     ) : DetailsEvent
@@ -105,7 +105,7 @@ class DetailsViewModel(
     private val delete: suspend (accountId: Long, bookId: Long) -> Unit,
     private val save: suspend (accountId: Long, file: File) -> FolderResult,
     /** App-wide [DetailsEvent.Read] / [DetailsEvent.OpenWith] sink, collected by AppNav. */
-    private val opens: SendChannel<DetailsEvent>,
+    private val opens: MutableSharedFlow<DetailsEvent>,
     /** Outlives this ViewModel, so a read pressed before the download still opens after the user leaves the screen. */
     private val pendingScope: CoroutineScope,
 ) : ViewModel() {
@@ -249,7 +249,7 @@ class DetailsViewModel(
         val book = s.book ?: return
         when (val action = s.action) {
             is PrimaryAction.Downloaded -> {
-                opens.trySend(event(action.file))
+                opens.tryEmit(event(action.file))
             }
 
             is PrimaryAction.Download -> {
@@ -264,7 +264,7 @@ class DetailsViewModel(
                                 if (a is PrimaryAction.Downloading) sawDownloading = true
                                 a is PrimaryAction.Downloaded || (sawDownloading && a !is PrimaryAction.Downloading)
                             }
-                        if (end is PrimaryAction.Downloaded) opens.send(event(end.file))
+                        if (end is PrimaryAction.Downloaded) opens.tryEmit(event(end.file))
                     }
             }
 
