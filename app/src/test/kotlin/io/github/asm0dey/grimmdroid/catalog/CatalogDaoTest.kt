@@ -320,4 +320,25 @@ class CatalogDaoTest {
         db.openHelper.readableDatabase.query("SELECT $a, $b FROM $table ORDER BY $a, $b").use {
             buildList { while (it.moveToNext()) add(it.getLong(0) to it.getLong(1)) }
         }
+
+    @Test
+    fun downloadsAreDoneRowsOfTheAccountWithTheirBookNewestFirst() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1), book(2), book(3), book(4), book(1, account = 2)))
+
+            fun dl(
+                account: Long,
+                id: Long,
+                state: DownloadState,
+            ) = DownloadEntity(account, id, 5, "f$id", "/p$id", id * 10, state, 1f)
+            dao.upsertDownload(dl(1, 1, DownloadState.DONE))
+            dao.upsertDownload(dl(1, 2, DownloadState.RUNNING))
+            dao.upsertDownload(dl(2, 1, DownloadState.DONE))
+            dao.upsertDownload(dl(1, 3, DownloadState.DONE))
+            dao.upsertDownload(dl(1, 99, DownloadState.DONE)) // no such book
+            val rows = dao.downloads(1).first()
+            assertEquals(listOf(3L, 1L), rows.map { it.book.id })
+            assertEquals(listOf(30L, 10L), rows.map { it.download.sizeBytes })
+            assertEquals("T3", rows.first().book.title)
+        }
 }

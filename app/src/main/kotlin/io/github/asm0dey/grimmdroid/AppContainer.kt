@@ -55,6 +55,7 @@ class AppContainer(
     context: Context,
 ) {
     private val app = context.applicationContext
+    val appContext: Context get() = app
 
     val db: CatalogDb = Room.databaseBuilder(app, CatalogDb::class.java, "catalog.db").build()
 

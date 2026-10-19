@@ -68,6 +68,10 @@ import io.github.asm0dey.grimmdroid.AppContainer
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.auth.OidcRedirects
 import io.github.asm0dey.grimmdroid.sync.SyncState
+import io.github.asm0dey.grimmdroid.ui.downloads.DownloadsScreen
+import io.github.asm0dey.grimmdroid.ui.downloads.DownloadsViewModel
+import io.github.asm0dey.grimmdroid.ui.home.HomeScreen
+import io.github.asm0dey.grimmdroid.ui.home.HomeViewModel
 import io.github.asm0dey.grimmdroid.ui.library.LibraryContent
 import io.github.asm0dey.grimmdroid.ui.library.LibraryViewModel
 import io.github.asm0dey.grimmdroid.ui.library.SearchLauncher
@@ -116,6 +120,7 @@ fun AppNav(container: AppContainer) {
     LaunchedEffect(destination) { Tab.entries.firstOrNull { destination?.hasRoute(it.route::class) == true }?.let { tab = it } }
     val inShell = destination != null && !destination.hasRoute(Onboarding::class)
     val onLibrary = destination?.hasRoute(Library::class) == true
+    val ownHeader = onLibrary || destination?.hasRoute(Home::class) == true
     val onSearch = destination?.hasRoute(Search::class) == true
     val sync = current?.let { syncStates[it.id] }
     val lastSynced = current?.lastSyncedAt
@@ -148,9 +153,9 @@ fun AppNav(container: AppContainer) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             if (inShell && !onSearch) {
-                // Library draws its own search bar and account button instead of the app bar.
-                Column(if (onLibrary) Modifier.statusBarsPadding() else Modifier) {
-                    if (!onLibrary) {
+                // Library and Home draw their own search bar and account button instead of the app bar.
+                Column(if (ownHeader) Modifier.statusBarsPadding() else Modifier) {
+                    if (!ownHeader) {
                         val shelf = backStackEntry?.takeIf { destination.hasRoute(ShelfBooks::class) }?.toRoute<ShelfBooks>()
                         TopAppBar(
                             title = { Text(shelf?.name ?: stringResource(tab.label)) },
@@ -197,7 +202,7 @@ fun AppNav(container: AppContainer) {
             }
         },
     ) { padding ->
-        // Placeholder bodies; Tasks 13–15 fill these in.
+        // Placeholder bodies; Tasks 14–15 fill these in.
         NavHost(nav, startDestination = start, modifier = Modifier.padding(padding)) {
             composable<Onboarding> {
                 OnboardingRoute(container) { isDefault ->
@@ -209,7 +214,12 @@ fun AppNav(container: AppContainer) {
                     if (isDefault) scope.launch { snackbar.showSnackbar(defaultPassword) }
                 }
             }
-            composable<Home> { Placeholder("Home") }
+            composable<Home> {
+                val vm: HomeViewModel = viewModel(factory = HomeViewModel.factory(container))
+                HomeScreen(vm, baseUrl, onSearch = { nav.navigate(Search) }, onAccount = { sheetOpen = true }, onBook = openBook) {
+                    nav.openTab(if (it == Downloads) Tab.DOWNLOADS else Tab.LIBRARY)
+                }
+            }
             composable<Library> {
                 val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.factory(container, null))
                 LibraryContent(vm, baseUrl, syncStatus, openBook) {
@@ -222,7 +232,11 @@ fun AppNav(container: AppContainer) {
                 val shelves by remember(accountId) { accountId?.let(dao::shelves) ?: flowOf(emptyList()) }.collectAsState(emptyList())
                 ShelvesScreen(shelves) { nav.navigate(ShelfBooks(it.id, it.magic, it.name)) }
             }
-            composable<Downloads> { Placeholder("Downloads") }
+            composable<Downloads> {
+                val vm: DownloadsViewModel = viewModel(factory = DownloadsViewModel.factory(container))
+                val accountId = current?.id
+                DownloadsScreen(vm, baseUrl, snackbar, { uri -> accountId?.let { container.folderExport.setFolder(it, uri) } }, openBook)
+            }
             composable<ShelfBooks> { entry ->
                 val route = entry.toRoute<ShelfBooks>()
                 val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.factory(container, ShelfScope(route.shelfId, route.magic)))

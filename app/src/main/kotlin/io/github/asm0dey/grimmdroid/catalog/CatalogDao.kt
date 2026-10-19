@@ -171,6 +171,22 @@ abstract class CatalogDao {
         bookId: Long,
     ): Flow<DownloadEntity?>
 
+    /** DONE downloads with their books, newest first (a re-download is a new row, so rowid order is download order). */
+    @Query(
+        "SELECT d.*, " +
+            "b.accountId AS b_accountId, b.id AS b_id, b.title AS b_title, " +
+            "b.authors AS b_authors, b.seriesName AS b_seriesName, " +
+            "b.seriesNumber AS b_seriesNumber, b.libraryId AS b_libraryId, " +
+            "b.addedOn AS b_addedOn, b.lastReadTime AS b_lastReadTime, " +
+            "b.readProgress AS b_readProgress, b.primaryFileId AS b_primaryFileId, " +
+            "b.primaryFileType AS b_primaryFileType, b.primaryFileName AS b_primaryFileName, " +
+            "b.fileSizeKb AS b_fileSizeKb, b.coverUpdatedOn AS b_coverUpdatedOn, " +
+            "b.isAudiobook AS b_isAudiobook, b.syncGeneration AS b_syncGeneration " +
+            "FROM DownloadEntity d JOIN BookEntity b ON b.accountId = d.accountId AND b.id = d.bookId " +
+            "WHERE d.accountId = :accountId AND d.state = 'DONE' ORDER BY d.rowid DESC",
+    )
+    abstract fun downloads(accountId: Long): Flow<List<DownloadWithBook>>
+
     @Query("UPDATE DownloadEntity SET progress = :progress WHERE accountId = :accountId AND bookId = :bookId")
     abstract suspend fun setDownloadProgress(
         accountId: Long,

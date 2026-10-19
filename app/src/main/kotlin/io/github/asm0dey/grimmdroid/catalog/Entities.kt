@@ -96,3 +96,9 @@ data class BookRow(
     @Embedded val book: BookEntity,
     val downloaded: Boolean,
 )
+
+/** A completed download with its book; the book's columns carry the `b_` prefix. */
+data class DownloadWithBook(
+    @Embedded val download: DownloadEntity,
+    @Embedded(prefix = "b_") val book: BookEntity,
+)

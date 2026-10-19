@@ -67,4 +67,15 @@
         <item quantity="one">%d book</item>
         <item quantity="other">%d books</item>
     </plurals>
+    <string name="continue_reading">Continue reading</string>
+    <string name="recently_added">Recently added</string>
+    <string name="on_this_phone">On this phone</string>
+    <string name="see_all">See all</string>
+    <string name="downloads_empty">Books you download appear here</string>
+    <string name="downloads_total">%1$s used on this phone</string>
+    <string name="selected_count">%1$d selected</string>
+    <string name="delete_action">Delete</string>
+    <string name="save_to_folder_action">Save to folder</string>
+    <string name="clear_selection">Clear selection</string>
+    <string name="change_action">Change</string>
 </resources>
