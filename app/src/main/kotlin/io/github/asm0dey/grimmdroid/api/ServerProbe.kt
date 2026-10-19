@@ -41,6 +41,8 @@ sealed interface ProbeResult {
 
     data object NotGrimmory : ProbeResult
 
+    data object InvalidAddress : ProbeResult
+
     data class TlsUntrusted(
         val host: String,
     ) : ProbeResult
@@ -48,7 +50,12 @@ sealed interface ProbeResult {
 
 fun normalizeBaseUrl(input: String): String {
     val trimmed = input.trim()
-    val withScheme = if ("://" in trimmed) trimmed else "https://$trimmed"
+    val withScheme =
+        if ("://" in trimmed) {
+            trimmed.substringBefore("://").lowercase() + "://" + trimmed.substringAfter("://")
+        } else {
+            "https://$trimmed"
+        }
     return withScheme.trimEnd('/')
 }
 
@@ -57,9 +64,17 @@ class ServerProbe(
 ) {
     suspend fun probe(input: String): ProbeResult {
         val baseUrl = normalizeBaseUrl(input)
+        if ("://" !in baseUrl) return ProbeResult.InvalidAddress // "", "https://" trim down to "https:"
+        val host =
+            try {
+                Url(baseUrl).takeIf { it.protocol.name in setOf("http", "https") }?.host?.takeIf { it.isNotBlank() }
+            } catch (e: Exception) {
+                // Ktor throws URLParserException or IAE depending on the input
+                null
+            } ?: return ProbeResult.InvalidAddress
         return try {
             val settings = get<PublicSettings>("$baseUrl/api/v1/public-settings")
-            val version = get<VersionInfo>("$baseUrl/api/v1/version")
+            val version = settings?.let { get<VersionInfo>("$baseUrl/api/v1/version") }
             if (settings == null || version == null) {
                 ProbeResult.NotGrimmory
             } else {
@@ -68,7 +83,7 @@ class ServerProbe(
         } catch (e: CancellationException) {
             throw e
         } catch (e: SSLException) {
-            ProbeResult.TlsUntrusted(Url(baseUrl).host)
+            ProbeResult.TlsUntrusted(host)
         } catch (e: IOException) {
             ProbeResult.Unreachable
         }

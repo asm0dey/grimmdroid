@@ -56,6 +56,26 @@ class ServerProbeSpec :
             normalizeBaseUrl("http://10.0.0.2:6060") shouldBe "http://10.0.0.2:6060"
         }
 
+        test("normalizeBaseUrl lower-cases the scheme and probe flags cleartext") {
+            normalizeBaseUrl("HTTP://10.0.0.2:6060/") shouldBe "http://10.0.0.2:6060"
+            (probe("HTTP://10.0.0.2:6060/") { ok(it) } as ProbeResult.Ok).cleartext shouldBe true
+        }
+
+        test("unparseable input is InvalidAddress") {
+            for (bad in listOf("", "   ", "ht!tp://??")) {
+                probe(bad) { ok(it) } shouldBe ProbeResult.InvalidAddress
+            }
+        }
+
+        test("version is not requested when public-settings is not Grimmory") {
+            val paths = mutableListOf<String>()
+            probe("books.example.net", {
+                paths += it
+                null
+            }) { respondError(HttpStatusCode.NotFound) }
+            paths shouldBe listOf("/api/v1/public-settings")
+        }
+
         test("grimmory server is Ok over https") {
             val result = probe("books.example.net/") { ok(it) }
             result shouldBe
