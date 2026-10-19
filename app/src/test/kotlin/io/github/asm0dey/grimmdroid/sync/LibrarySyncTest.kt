@@ -73,6 +73,8 @@ private class FakeServer {
     var titles: Map<Long, String> = emptyMap()
     var canDownload = true
     var failOnPage: Int? = null
+    var failShelfIds = false
+    var requests = 0
     var unauthorized = false
     var hasNextStuck = false
     var shelves = mapOf(10L to listOf(1L, 2L))
@@ -81,6 +83,7 @@ private class FakeServer {
 
     val engine =
         MockEngine { req ->
+            requests++
             val p = req.url.parameters
             when {
                 req.url.encodedPath == "/api/v1/auth/refresh" -> {
@@ -111,6 +114,7 @@ private class FakeServer {
                             }
 
                             "/api/v1/app/books/ids" -> {
+                                if (failShelfIds) return@MockEngine respondError(HttpStatusCode.InternalServerError)
                                 val ids = p["shelfId"]?.let { shelves[it.toLong()] } ?: magicShelves.getValue(p["magicShelfId"]!!.toLong())
                                 ids.joinToString(",", "[", "]")
                             }
@@ -307,4 +311,45 @@ class LibrarySyncTest {
         assertEquals(2L, e.accountId)
         assertEquals(9L, e.syncGeneration)
     }
+
+    @Test
+    fun clockGoingBackwardsStillDeletesAbsentBooks() =
+        runBlocking {
+            server.titles = mapOf(1L to "A", 2L to "B")
+            now = 2_000
+            sync.sync(accountId)
+            server.titles = mapOf(1L to "A")
+            now = 1_000
+            sync.sync(accountId)
+            assertEquals(listOf(1L), books().map { it.id })
+        }
+
+    @Test
+    fun syncReturnsFinalState() =
+        runBlocking {
+            server.titles = mapOf(1L to "A")
+            assertEquals(SyncState.Idle, sync.sync(accountId))
+            server.failOnPage = 0
+            assertTrue(sync.sync(accountId) is SyncState.Failed)
+        }
+
+    @Test
+    fun signedOutAccountSkipsNetwork() =
+        runBlocking {
+            accounts.tokenSource(accountId).expired()
+            assertEquals(SyncState.SignedOut, sync.sync(accountId))
+            assertEquals(SyncState.SignedOut, state())
+            assertEquals(0, server.requests)
+        }
+
+    @Test
+    fun shelfIdsFailureFailsWithoutDeleting() =
+        runBlocking {
+            server.titles = (1L..3L).associateWith { "T" }
+            sync.sync(accountId)
+            server.titles = emptyMap()
+            server.failShelfIds = true
+            assertTrue(sync.sync(accountId) is SyncState.Failed)
+            assertEquals(3, books().size)
+        }
 }

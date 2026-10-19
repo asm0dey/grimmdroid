@@ -171,9 +171,12 @@ class CatalogDaoTest {
         }
 
     @Test
-    fun deleteBooksNotInKeepsCurrentGenerationAndOtherAccounts() =
+    fun deleteBooksNotInKeepsOnlyCurrentGenerationAndOtherAccounts() =
         runBlocking {
-            dao.upsertBooks(listOf(book(1, generation = 1), book(2, generation = 2), book(3, account = 2, generation = 1)))
+            // generation 3 is "newer" than 2: still deleted, so a clock that went backwards can't keep stale rows
+            dao.upsertBooks(
+                listOf(book(1, generation = 1), book(2, generation = 2), book(4, generation = 3), book(3, account = 2, generation = 1)),
+            )
             dao.deleteBooksNotIn(1, 2)
             assertEquals(listOf(2L), ids(BookQuery(1)))
             assertEquals(listOf(3L), ids(BookQuery(2)))

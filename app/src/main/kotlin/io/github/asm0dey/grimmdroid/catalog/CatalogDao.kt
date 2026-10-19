@@ -46,7 +46,7 @@ abstract class CatalogDao {
     @Upsert
     abstract suspend fun upsertBooks(books: List<BookEntity>)
 
-    @Query("DELETE FROM BookEntity WHERE accountId = :accountId AND syncGeneration < :generation")
+    @Query("DELETE FROM BookEntity WHERE accountId = :accountId AND syncGeneration != :generation")
     abstract suspend fun deleteBooksNotIn(
         accountId: Long,
         generation: Long,

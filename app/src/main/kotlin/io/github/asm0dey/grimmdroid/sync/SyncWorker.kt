@@ -48,9 +48,8 @@ class SyncWorker(
     override suspend fun doWork(): Result {
         val accountId = inputData.getLong(KEY_ACCOUNT_ID, -1)
         if (accountId < 0) return Result.failure()
-        val sync = (applicationContext as SyncHost).librarySync
-        sync.sync(accountId)
-        return if (sync.state.value[accountId] is SyncState.Failed) Result.retry() else Result.success()
+        val state = (applicationContext as SyncHost).librarySync.sync(accountId)
+        return if (state is SyncState.Failed) Result.retry() else Result.success()
     }
 
     // Expedited work runs as a foreground service below API 31 and needs a notification there.

@@ -57,9 +57,11 @@ class LibrarySync(
         s: SyncState,
     ) = states.update { it + (accountId to s) }
 
-    suspend fun sync(accountId: Long) =
+    /** Returns this run's final state; [state] may already show a later queued run. Unknown account ⇒ [SyncState.Idle]. */
+    suspend fun sync(accountId: Long): SyncState =
         locks.getOrPut(accountId) { Mutex() }.withLock {
-            val account = accounts.account(accountId) ?: return@withLock
+            val account = accounts.account(accountId) ?: return@withLock SyncState.Idle
+            if (account.signedOut) return@withLock SyncState.SignedOut.also { emit(accountId, it) }
             emit(accountId, SyncState.Running(0, 0))
             val result =
                 try {
@@ -73,6 +75,7 @@ class LibrarySync(
                     SyncState.Failed(e)
                 }
             emit(accountId, result)
+            result
         }
 
     private suspend fun sweep(
