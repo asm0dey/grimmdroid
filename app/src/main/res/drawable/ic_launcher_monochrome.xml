@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed (monochrome) layer: book silhouette with the G cut out.
+  The "G" outline is Noto Serif Bold (SIL Open Font License 1.1), scaled to 34px,
+  centred at (58, 67) in the 108dp viewport, converted to a path (vectors cannot render text).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M37,26 H71 A5,5 0 0 1 76,31 V77 A5,5 0 0 1 71,82 H37 A5,5 0 0 1 32,77 V31 A5,5 0 0 1 37,26 Z M59.33 67.34Q55.11 67.34 52.32 65.78Q49.53 64.21 48.16 61.41Q46.78 58.6 46.78 54.83Q46.78 51.16 48.22 48.35Q49.67 45.55 52.49 43.97Q55.31 42.38 59.46 42.38Q63.71 42.38 65.84 43.52Q67.96 44.66 67.96 46.33Q67.96 47.52 66.84 48.37Q65.72 49.22 63.61 49.22Q63.61 47.14 62.57 45.85Q61.54 44.56 59.39 44.56Q55.65 44.56 54.09 47.23Q52.53 49.9 52.53 54.83Q52.53 59.76 54.17 62.39Q55.82 65.03 59.8 65.03Q61.13 65.03 62.28 64.79V59.79Q62.28 58.43 61.67 57.91Q61.06 57.38 59.87 57.38H59.43V55.58H69.93V57.38H69.7Q68.64 57.38 68.17 57.92Q67.69 58.47 67.69 59.93V65.5Q65.68 66.42 63.66 66.88Q61.64 67.34 59.33 67.34Z" />
+</vector>
