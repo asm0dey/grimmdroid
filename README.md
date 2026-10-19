@@ -10,8 +10,10 @@ Grimmory with the mobile app API (`/api/v1/app/*`), tested against v3.5.0. Serve
 detected at sign-in and shown as unsupported.
 
 - **Password sign-in** works out of the box.
-- **SSO (OIDC)**: the server admin must allow `grimmory://oauth2-callback` as a redirect URI for Grimmory's
-  OIDC client in the identity provider. Until then the app shows a card naming that URI.
+- **SSO (OIDC)**: `grimmory://oauth2-callback` must be allowed as a redirect URI in two places: in the identity
+  provider, for Grimmory's OIDC client, and in Grimmory's OIDC redirect URIs setting (its default already includes
+  it). If the identity provider rejects it, the browser shows the provider's error page; if Grimmory rejects it,
+  the app shows a message naming that URI.
 - **Self-signed or private CA certificates**: install the CA certificate on the phone (Settings > Security >
   Encryption & credentials > Install a certificate > CA certificate). Grimmdroid trusts user-installed CAs.
   Plain `http://` also works, after a warning that the password travels unencrypted.

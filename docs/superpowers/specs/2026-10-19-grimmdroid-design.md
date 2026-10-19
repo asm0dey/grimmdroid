@@ -116,7 +116,8 @@ Paths below are relative to the Grimmory repo.
 ### Other endpoints needed
 - Covers: `GET /api/v1/media/book/{id}/thumbnail` and `/cover`.
 - Download: `GET /api/v1/books/{id}/download` (needs `canDownload`).
-- Server version: `GET /api/v1/version`; health: `/api/v1/healthcheck`.
+- Server version: the probe reads it from the public `GET /api/v1/healthcheck` (`data.version`);
+  `GET /api/v1/version` needs auth.
 
 ### Permissions
 Flags on the user (`UserPermissionsEntity`): admin, upload, download,
