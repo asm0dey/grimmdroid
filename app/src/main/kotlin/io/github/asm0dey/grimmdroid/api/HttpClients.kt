@@ -87,7 +87,7 @@ suspend fun HttpResponse.tokens(): Tokens =
 private val refreshLocks = ConcurrentHashMap<String, Mutex>()
 
 /**
- * The one refresh path for every client of [baseUrl] (Ktor bearer auth and the cover Authenticator).
+ * The one refresh path for every client of [baseUrl] (API, downloads and covers all use [authedClient]).
  * Returns the tokens to retry with, or null when signed out (no tokens, or the server answered 400/401);
  * other failures throw and keep the session. [staleAccess] is the access token that was rejected: if the stored one
  * differs, another client already refreshed and the old refresh token is revoked server-side, so it is reused as is.

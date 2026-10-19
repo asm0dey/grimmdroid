@@ -23,16 +23,14 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
 import coil3.ImageLoader
 import coil3.disk.DiskCache
-import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.network.NetworkFetcher
 import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.account.AccountRepository
 import io.github.asm0dey.grimmdroid.account.KeystoreTokenCipher
+import io.github.asm0dey.grimmdroid.api.CoverNetworkClient
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
 import io.github.asm0dey.grimmdroid.api.ServerProbe
 import io.github.asm0dey.grimmdroid.api.authedClient
-import io.github.asm0dey.grimmdroid.api.coverAuthInterceptor
-import io.github.asm0dey.grimmdroid.api.coverAuthenticator
-import io.github.asm0dey.grimmdroid.api.coverSession
 import io.github.asm0dey.grimmdroid.api.httpClient
 import io.github.asm0dey.grimmdroid.auth.OidcLogin
 import io.github.asm0dey.grimmdroid.auth.PasswordLogin
@@ -46,7 +44,7 @@ import io.github.asm0dey.grimmdroid.net.Connectivity
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import io.ktor.client.HttpClient
-import okhttp3.OkHttpClient
+import kotlinx.coroutines.flow.first
 import okio.Path.Companion.toOkioPath
 import java.util.concurrent.ConcurrentHashMap
 
@@ -100,19 +98,8 @@ class AppContainer(
         ImageLoader
             .Builder(app)
             .components {
-                add(
-                    OkHttpNetworkFetcherFactory(
-                        callFactory = {
-                            val session = accounts.coverSession()
-                            OkHttpClient
-                                .Builder()
-                                .addInterceptor(coverAuthInterceptor(session))
-                                // Refreshes through the same per-server lock as the API clients; httpClient carries no tokens.
-                                .authenticator(coverAuthenticator(session, httpClient))
-                                .build()
-                        },
-                    ),
-                )
+                // Covers share the per-account authed client, so its refresh path and host scoping apply to them too.
+                add(NetworkFetcher.Factory({ CoverNetworkClient({ accounts.current.first() }, ::authedClient, httpClient) }))
             }.diskCache {
                 DiskCache
                     .Builder()
