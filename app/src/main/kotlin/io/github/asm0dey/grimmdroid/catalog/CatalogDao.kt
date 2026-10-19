@@ -156,6 +156,28 @@ abstract class CatalogDao {
     @Query("DELETE FROM DownloadEntity WHERE accountId = :accountId")
     protected abstract suspend fun deleteDownloads(accountId: Long)
 
+    @Upsert
+    abstract suspend fun upsertDownload(download: DownloadEntity)
+
+    @Query("SELECT * FROM DownloadEntity WHERE accountId = :accountId AND bookId = :bookId LIMIT 1")
+    abstract fun download(
+        accountId: Long,
+        bookId: Long,
+    ): Flow<DownloadEntity?>
+
+    @Query("UPDATE DownloadEntity SET progress = :progress WHERE accountId = :accountId AND bookId = :bookId")
+    abstract suspend fun setDownloadProgress(
+        accountId: Long,
+        bookId: Long,
+        progress: Float,
+    )
+
+    @Query("DELETE FROM DownloadEntity WHERE accountId = :accountId AND bookId = :bookId")
+    abstract suspend fun deleteBookDownloads(
+        accountId: Long,
+        bookId: Long,
+    )
+
     @Transaction
     open suspend fun deleteAccount(accountId: Long) {
         deleteBooks(accountId)
