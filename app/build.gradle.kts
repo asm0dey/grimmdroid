@@ -73,6 +73,9 @@ dependencies {
     implementation(libs.ktor.client.auth)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.room.runtime)
+    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.datastore.preferences)
 
     testImplementation(libs.kotest.runner.junit6)
     testImplementation(libs.kotest.assertions.core)
