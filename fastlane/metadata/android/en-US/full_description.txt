@@ -1,0 +1,5 @@
+Grimmdroid is a native Android client for Grimmory, the self-hosted book server.
+
+Sign in to one or more Grimmory servers, browse your libraries and shelves, search your catalogue and download books to read in the reader app of your choice.
+
+Grimmdroid is free software, licensed under the GPL-3.0-or-later. It contains no ads, no analytics and no proprietary libraries.
