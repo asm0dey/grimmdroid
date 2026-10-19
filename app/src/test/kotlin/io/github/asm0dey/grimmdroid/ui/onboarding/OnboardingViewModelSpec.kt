@@ -44,6 +44,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import java.io.IOException
 import java.util.Base64
 
 private class MemoryStore : DataStore<Preferences> {
@@ -57,7 +58,10 @@ private val https = ProbeResult.Ok("https://grim.example", "v3.5.0", PublicSetti
 private val sso = https.copy(settings = PublicSettings(oidcEnabled = true, oidcProviderDetails = details))
 private val user = AppUserInfo(canDownload = true)
 
-private fun jwt(sub: String) = "e30." + Base64.getUrlEncoder().withoutPadding().encodeToString("""{"sub":"$sub"}""".toByteArray()) + ".sig"
+private fun jwtWithPayload(payload: String) =
+    "e30." + Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toByteArray()) + ".sig"
+
+private fun jwt(sub: String) = jwtWithPayload("""{"sub":"$sub"}""")
 
 private class Saved(
     val baseUrl: String,
@@ -68,7 +72,7 @@ private class Saved(
 @OptIn(ExperimentalCoroutinesApi::class)
 private class Fixture(
     var probeResult: ProbeResult = https,
-    var loginResult: LoginResult = LoginResult.Ok(Tokens("a", "r"), user),
+    var loginResult: LoginResult = LoginResult.Ok(Tokens(jwt("pavel"), "r"), user),
     var completeResult: LoginResult = LoginResult.Ok(Tokens(jwt("oidc-user"), "r"), user),
 ) {
     val store = PendingOidcStore(MemoryStore())
@@ -76,18 +80,22 @@ private class Fixture(
     val saved = mutableListOf<Saved>()
     val synced = mutableListOf<Long>()
     var completed = 0
+    var startError: Exception? = null
+    var saveError: Exception? = null
 
     fun vm() =
         OnboardingViewModel(
             probe = { probeResult },
             passwordLogin = { _, _, _, _ -> loginResult },
             oidcStart = { baseUrl, version, _ ->
+                startError?.let { throw it }
                 Url("https://idp.example/authorize?state=s1") to PendingOidc(baseUrl, version, "s1", "n1", "v1")
             },
             oidcComplete = { _, _ -> completeResult.also { completed++ } },
             pending = store,
             redirects = redirects,
             saveAccount = { baseUrl, username, version, _, _ ->
+                saveError?.let { throw it }
                 saved += Saved(baseUrl, username, version)
                 42L
             },
@@ -144,12 +152,12 @@ class OnboardingViewModelSpec :
         }
 
         test("successful password login stores the account, schedules sync and is Done") {
-            val f = Fixture(loginResult = LoginResult.Ok(Tokens("a", "r", isDefaultPassword = true), user))
+            val f = Fixture(loginResult = LoginResult.Ok(Tokens(jwt("pavel"), "r", isDefaultPassword = true), user))
             val vm = f.vm()
             runTest(main) {
                 vm.submitServer("grim.example")
                 advanceUntilIdle()
-                vm.signIn("pavel", "pw")
+                vm.signIn("Pavel", "pw") // the token's subject, not the typed spelling, names the account
                 advanceUntilIdle()
                 vm.state.value shouldBe OnboardingState.Done(42, defaultPassword = true)
                 f.saved.single().let { listOf(it.baseUrl, it.username, it.version) } shouldBe
@@ -174,6 +182,89 @@ class OnboardingViewModelSpec :
             loginError(LoginResult.BadCredentials) shouldBe "Wrong username or password"
             loginError(LoginResult.OidcOnly) shouldBe "This server only allows SSO sign-in"
             loginError(LoginResult.Unsupported("v2.0.0")) shouldBe "This server version isn't supported: v2.0.0"
+            loginError(LoginResult.Failed(IOException("boom"))) shouldBe "Can't reach this server"
+            loginError(LoginResult.Failed(IllegalStateException("boom"))) shouldBe "Sign-in didn't work. Try again."
+        }
+
+        test("a token without a usable subject fails the sign-in and saves nothing") {
+            for (payload in listOf("{}", """{"sub":null}""", """{"sub":"  "}""", """{"sub":7}""")) {
+                val f = Fixture(loginResult = LoginResult.Ok(Tokens(jwtWithPayload(payload), "r"), user))
+                val vm = f.vm()
+                runTest(main) {
+                    vm.submitServer("grim.example")
+                    advanceUntilIdle()
+                    vm.signIn("pavel", "pw")
+                    advanceUntilIdle()
+                    (vm.state.value as OnboardingState.SignIn).error shouldBe "Sign-in didn't work. Try again."
+                    f.saved shouldBe emptyList()
+                    f.synced shouldBe emptyList()
+                }
+            }
+        }
+
+        test("OidcOnly from login hides the password form") {
+            val vm = Fixture(probeResult = sso, loginResult = LoginResult.OidcOnly).vm()
+            runTest(main) {
+                vm.submitServer("grim.example")
+                advanceUntilIdle()
+                vm.signIn("pavel", "pw")
+                advanceUntilIdle()
+                (vm.state.value as OnboardingState.SignIn).passwordAllowed shouldBe false
+            }
+        }
+
+        test("a failing oidcStart stays on the sign-in screen with an error and saves no pending sign-in") {
+            val f = Fixture(probeResult = sso).apply { startError = IllegalStateException("HTTP 500") }
+            val vm = f.vm()
+            runTest(main) {
+                vm.submitServer("grim.example")
+                advanceUntilIdle()
+                vm.signInWithSso()
+                advanceUntilIdle()
+                (vm.state.value as OnboardingState.SignIn).error shouldBe "Sign-in didn't work. Try again."
+                f.store.load().shouldBeNull()
+            }
+        }
+
+        test("a failing account save shows the generic error and the redirect collector keeps running") {
+            val f = Fixture(probeResult = sso).apply { saveError = IllegalStateException("disk full") }
+            val vm = f.vm()
+            runTest(main) {
+                vm.submitServer("grim.example")
+                advanceUntilIdle()
+                vm.signInWithSso()
+                advanceUntilIdle()
+                f.redirects.emit(Url("grimmory://oauth2-callback?state=s1&code=c"))
+                advanceUntilIdle()
+                (vm.state.value as OnboardingState.SignIn).error shouldBe "Sign-in didn't work. Try again."
+                f.saveError = null
+                vm.signInWithSso()
+                advanceUntilIdle()
+                f.redirects.emit(Url("grimmory://oauth2-callback?state=s1&code=c"))
+                advanceUntilIdle()
+                vm.state.value shouldBe OnboardingState.Done(42, defaultPassword = false)
+            }
+        }
+
+        test("back and a new server address abandon a pending SSO sign-in") {
+            val f = Fixture(probeResult = sso)
+            val vm = f.vm()
+            runTest(main) {
+                vm.submitServer("grim.example")
+                advanceUntilIdle()
+                vm.signInWithSso()
+                advanceUntilIdle()
+                vm.back()
+                advanceUntilIdle()
+                f.store.load().shouldBeNull()
+                vm.submitServer("grim.example")
+                advanceUntilIdle()
+                vm.signInWithSso()
+                advanceUntilIdle()
+                vm.submitServer("other.example")
+                advanceUntilIdle()
+                f.store.load().shouldBeNull()
+            }
         }
 
         test("SSO: opens the browser, completes on the redirect, names the account after the token subject") {

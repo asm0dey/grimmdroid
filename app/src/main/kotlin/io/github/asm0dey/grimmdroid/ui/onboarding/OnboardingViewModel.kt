@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
@@ -98,12 +99,24 @@ class OnboardingViewModel(
 
     init {
         // Also finishes a sign-in whose Custom Tab outlived our process: the redirect is replayed and the PendingOidc persisted.
-        viewModelScope.launch { redirects.collect(::onRedirect) }
+        viewModelScope.launch {
+            redirects.collect {
+                try {
+                    onRedirect(it)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // e.g. an unreadable PendingOidc; the collector must outlive it to take the next redirect.
+                    _state.value = signIn?.copy(error = GENERIC) ?: OnboardingState.EnterServer(GENERIC)
+                }
+            }
+        }
     }
 
     fun submitServer(address: String) {
         _state.value = OnboardingState.Probing
         viewModelScope.launch {
+            pending.clear() // a new server abandons any SSO sign-in still waiting for its redirect
             _state.value =
                 when (val result = probe(address)) {
                     is ProbeResult.Ok -> {
@@ -142,6 +155,7 @@ class OnboardingViewModel(
     fun back() {
         signIn = null
         _state.value = OnboardingState.EnterServer()
+        viewModelScope.launch { pending.clear() }
     }
 
     fun signIn(
@@ -151,9 +165,7 @@ class OnboardingViewModel(
         val form = signIn ?: return
         _state.value = OnboardingState.SigningIn
         viewModelScope.launch {
-            finish(passwordLogin(form.probe.baseUrl, form.probe.version, username, password), form.probe.baseUrl, form.probe.version) {
-                username
-            }
+            finish(passwordLogin(form.probe.baseUrl, form.probe.version, username, password), form.probe.baseUrl, form.probe.version)
         }
     }
 
@@ -184,23 +196,36 @@ class OnboardingViewModel(
         _state.value = OnboardingState.SigningIn
         val result = oidcComplete(url, request)
         pending.clear()
-        finish(result, request.baseUrl, request.serverVersion) { tokens -> jwtSubject(tokens.accessToken) ?: SSO_FALLBACK_USERNAME }
+        finish(result, request.baseUrl, request.serverVersion)
     }
 
     private suspend fun finish(
         result: LoginResult,
         baseUrl: String,
         version: String,
-        username: (Tokens) -> String,
     ) {
-        if (result !is LoginResult.Ok) {
-            val error = errorCopy(result)
-            _state.value = signIn?.copy(error = error) ?: OnboardingState.EnterServer(error)
+        if (result is LoginResult.OidcOnly) signIn = signIn?.copy(passwordAllowed = false)
+        // Both paths name the account after the token's subject (Grimmory's username), so one user is one row.
+        val username = (result as? LoginResult.Ok)?.let { jwtSubject(it.tokens.accessToken) }
+        if (result !is LoginResult.Ok || username == null) {
+            showError(errorCopy(result))
             return
         }
-        val id = saveAccount(baseUrl, username(result.tokens), version, result.user, result.tokens)
+        val id =
+            try {
+                saveAccount(baseUrl, username, version, result.user, result.tokens)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                showError(GENERIC)
+                return
+            }
         scheduleSync(id)
         _state.value = OnboardingState.Done(id, defaultPassword = result.tokens.isDefaultPassword == true)
+    }
+
+    private fun showError(error: String) {
+        _state.value = signIn?.copy(error = error) ?: OnboardingState.EnterServer(error)
     }
 
     private fun errorCopy(result: LoginResult): String =
@@ -226,15 +251,14 @@ class OnboardingViewModel(
             }
 
             is LoginResult.Failed, is LoginResult.Ok -> {
-                "Sign-in didn't work. Try again."
+                GENERIC
             }
         }
 
     companion object {
         private const val UNREACHABLE = "Can't reach this server"
 
-        // shortcut: two SSO users whose tokens lack a subject would share one account row; Grimmory always sets sub.
-        private const val SSO_FALLBACK_USERNAME = "sso"
+        private const val GENERIC = "Sign-in didn't work. Try again."
 
         fun factory(
             container: AppContainer,
@@ -257,7 +281,8 @@ class OnboardingViewModel(
     }
 }
 
-// Grimmory puts the username in the access token's subject; the token came from our server, so no signature check.
+// Grimmory puts the username in the access token's subject (JwtUtils); the token came from our server, so no signature check.
+// Null when missing, blank or not a string: the sign-in then fails rather than saving an account under a made-up name.
 private fun jwtSubject(token: String): String? =
     runCatching {
         val payload = Base64.getUrlDecoder().decode(token.split('.')[1])
@@ -265,5 +290,7 @@ private fun jwtSubject(token: String): String? =
             .parseToJsonElement(payload.decodeToString())
             .jsonObject["sub"]
             ?.jsonPrimitive
-            ?.content
+            ?.takeIf { it.isString }
+            ?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
     }.getOrNull()
