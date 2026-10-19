@@ -1,8 +1,20 @@
 # Grimmdroid
 
 Native Android client for the [Grimmory](https://github.com/grimmory-tools/grimmory) self-hosted book server.
+Browse your libraries and shelves, search the catalogue, and download books to read in the reader app you
+already use (Grimmdroid has no reader of its own). Android 8.0 (API 26) or newer.
 
-Work in progress.
+## Supported servers
+
+Grimmory with the mobile app API (`/api/v1/app/*`), tested against v3.5.0. Servers without that API are
+detected at sign-in and shown as unsupported.
+
+- **Password sign-in** works out of the box.
+- **SSO (OIDC)**: the server admin must allow `grimmory://oauth2-callback` as a redirect URI for Grimmory's
+  OIDC client in the identity provider. Until then the app shows a card naming that URI.
+- **Self-signed or private CA certificates**: install the CA certificate on the phone (Settings > Security >
+  Encryption & credentials > Install a certificate > CA certificate). Grimmdroid trusts user-installed CAs.
+  Plain `http://` also works, after a warning that the password travels unencrypted.
 
 ## Build
 
@@ -19,7 +31,16 @@ mise puts the SDK under `$(mise where android-sdk)` and exports `ANDROID_HOME`, 
 to that path to avoid keeping two SDKs. CI uses the runner's preinstalled SDK instead.
 
 Release builds are signed from `GRIMMDROID_KEYSTORE`, `GRIMMDROID_KEYSTORE_PASSWORD`,
-`GRIMMDROID_KEY_ALIAS` and `GRIMMDROID_KEY_PASSWORD` (`bundle exec fastlane release`).
+`GRIMMDROID_KEY_ALIAS` and `GRIMMDROID_KEY_PASSWORD` (`bundle exec fastlane release`, or
+`./gradlew assembleRelease` with those variables set). Release builds are minified with R8.
+
+`./gradlew integrationTest` runs against a throwaway Grimmory from `integration/docker-compose.yml`.
+
+## Distribution
+
+- **F-Droid**: nothing extra; every dependency is FOSS (no Google Play Services, Firebase or analytics).
+- **Google Play**: downloads run in a `dataSync` foreground service, so the Play Console needs a
+  foreground-service-type declaration with a justification (user-initiated book downloads) and a short video.
 
 ## License
 

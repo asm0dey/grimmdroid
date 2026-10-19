@@ -1,5 +1,12 @@
 Grimmdroid is a native Android client for Grimmory, the self-hosted book server.
 
-Sign in to one or more Grimmory servers, browse your libraries and shelves, search your catalogue and download books to read in the reader app of your choice.
+• Sign in to one or more Grimmory servers with a password or SSO
+• Browse your libraries and shelves, sort and filter, and search the whole catalogue
+• Download books and open them in the reader app you already use, share them, or save them to a folder
+• Choose what happens after a download: nothing, open in your reader, or save to your folder
+• Your library stays browsable offline, and downloaded books still open
+• Light and dark themes with dynamic colour
+
+Requires a Grimmory server with the mobile app API. Audiobooks aren't supported yet.
 
 Grimmdroid is free software, licensed under the GPL-3.0-or-later. It contains no ads, no analytics and no proprietary libraries.
