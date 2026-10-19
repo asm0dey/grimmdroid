@@ -17,6 +17,7 @@
  */
 package io.github.asm0dey.grimmdroid.reader
 
+import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.api.BookProgressDto
 import io.github.asm0dey.grimmdroid.api.FileProgressDto
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
@@ -150,10 +151,11 @@ fun EpubArchive.cfiForLocator(json: String): String? {
     return cfiFor(href, locations?.string("cssSelector"), progression)
 }
 
-/** Local positions and their upload. [enqueue] schedules [PositionUploadWorker] for an account. */
+/** Local positions and their upload. [account] looks an account up; [enqueue] schedules [PositionUploadWorker] for it. */
 class PositionSync(
     private val dao: ReaderDao,
-    private val api: suspend (accountId: Long) -> GrimmoryApi,
+    private val account: suspend (accountId: Long) -> AccountEntity?,
+    private val api: (AccountEntity) -> GrimmoryApi,
     private val enqueue: (accountId: Long) -> Unit,
 ) {
     suspend fun saveLocal(
@@ -165,18 +167,22 @@ class PositionSync(
         ReadingPosition(accountId, bookId, locatorJson, totalProgression, PendingUpload.NORMAL, System.currentTimeMillis()),
     )
 
-    /** "Make this position current": the next upload overwrites the server even when it is further ahead. */
+    /** "Make this position current": uploads over the server even when it is further ahead. No local position ⇒ FAILED. */
     suspend fun makeCurrent(
         accountId: Long,
         bookId: Long,
-    ) {
+        bookFileId: Long,
+        cfi: (locatorJson: String) -> String?,
+    ): UploadResult {
         dao.forcePosition(accountId, bookId)
-        enqueue(accountId) // the worker has the downloaded file's id and archive the upload needs
+        if (dao.position(accountId, bookId) == null) return UploadResult.FAILED
+        return upload(accountId, bookId, bookFileId, cfi)
     }
 
     /**
      * Uploads the pending position. NORMAL never overwrites a server position further ahead (HELD_BACK, still pending);
      * FORCE always does. [cfi] maps the uploaded row's locator JSON to a CFI. Nothing pending counts as SENT.
+     * A missing or signed-out account is FAILED with no request and nothing enqueued: only a sign-in can help.
      */
     suspend fun upload(
         accountId: Long,
@@ -185,8 +191,9 @@ class PositionSync(
         cfi: (locatorJson: String) -> String?,
     ): UploadResult {
         val row = dao.position(accountId, bookId)?.takeIf { it.pending != PendingUpload.NONE } ?: return UploadResult.SENT
+        val account = account(accountId)?.takeUnless { it.signedOut } ?: return UploadResult.FAILED
         return try {
-            val api = api(accountId)
+            val api = api(account)
             // shortcut: a server CFI without any percentage isn't weighed (it needs the archive); Grimmory sends both.
             if (row.pending == PendingUpload.NORMAL) {
                 val server = furthest(api.progress(bookId))
@@ -202,7 +209,7 @@ class PositionSync(
         } catch (_: ResponseException) {
             failed(accountId)
         } catch (_: SessionExpiredException) {
-            failed(accountId) // the worker then finds the account signed out and keeps the row for a later sign-in
+            failed(accountId) // the account is signed out now: the worker returns success and keeps the row
         }
     }
 

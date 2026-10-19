@@ -24,6 +24,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.ListenableWorker
 import androidx.work.NetworkType
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
@@ -153,7 +154,7 @@ class PositionSyncTest {
         app = ApplicationProvider.getApplicationContext()
         db = Room.inMemoryDatabaseBuilder(app, CatalogDb::class.java).allowMainThreadQueries().build()
         dao = db.readerDao()
-        sync = PositionSync(dao, { server.api }) { enqueued += it }
+        sync = PositionSync(dao, { db.accountDao().get(it) }, { server.api }) { enqueued += it }
         archive = EpubArchive(epubFile)
         val dir = Files.createTempDirectory("ds").toFile()
         val ds =
@@ -164,6 +165,7 @@ class PositionSyncTest {
         app.readerDao = dao
         app.accounts = AccountRepository(db.accountDao(), PlainCipher, SettingsStore(ds))
         app.downloadRepository = DownloadRepository(db.catalogDao(), { error("no downloads in this test") }, app.filesDir)
+        check(account() == 1L) // the rows below default to account 1
     }
 
     @After
@@ -346,12 +348,47 @@ class PositionSyncTest {
         }
 
     @Test
-    fun makeCurrentForcesAndEnqueues() =
+    fun makeCurrentUploadsOverFurtherServer() =
+        runBlocking {
+            dao.upsertPosition(row(progression = 0.4))
+            serverAt(60.0)
+            assertEquals(UploadResult.SENT, sync.makeCurrent(1, BOOK, 42) { "c" })
+            assertEquals(1, server.puts.size)
+            assertEquals(0, server.gets.size)
+            assertEquals(PendingUpload.NONE, dao.position(1, BOOK)!!.pending)
+            assertTrue(enqueued.isEmpty())
+        }
+
+    @Test
+    fun makeCurrentFailureStaysForceAndEnqueues() =
         runBlocking {
             dao.upsertPosition(row())
-            sync.makeCurrent(1, BOOK)
+            server.failWith = IOException("offline")
+            assertEquals(UploadResult.FAILED, sync.makeCurrent(1, BOOK, 42) { "c" })
             assertEquals(PendingUpload.FORCE, dao.position(1, BOOK)!!.pending)
             assertEquals(listOf(1L), enqueued)
+        }
+
+    @Test
+    fun makeCurrentWithoutLocalPositionFails() =
+        runBlocking {
+            assertEquals(UploadResult.FAILED, sync.makeCurrent(1, BOOK, 42) { "c" })
+            assertNull(dao.position(1, BOOK))
+            assertTrue(enqueued.isEmpty())
+            assertEquals(0, server.requests)
+        }
+
+    @Test
+    fun uploadForSignedOutOrRemovedAccountSendsNothing() =
+        runBlocking {
+            val signedOut = account(signedOut = true)
+            dao.upsertPosition(row(account = signedOut))
+            dao.upsertPosition(row(account = 99))
+            assertEquals(UploadResult.FAILED, sync.upload(signedOut, BOOK, 42) { "c" })
+            assertEquals(UploadResult.FAILED, sync.upload(99, BOOK, 42) { "c" })
+            assertEquals(0, server.requests)
+            assertTrue(enqueued.isEmpty())
+            assertEquals(row(account = signedOut), dao.position(signedOut, BOOK))
         }
 
     // ---- worker ----
@@ -448,16 +485,17 @@ class PositionSyncTest {
     }
 
     @Test
-    fun enqueueIsUniquePerAccountAndNeedsNetwork() {
+    fun enqueueAppendsToTheAccountsUniqueWorkAndNeedsNetwork() {
         WorkManagerTestInitHelper.initializeTestWorkManager(app)
         enqueuePositionUpload(app, 7)
         enqueuePositionUpload(app, 7)
-        val info =
+        val infos =
             WorkManager
                 .getInstance(app)
                 .getWorkInfosForUniqueWork("pos-upload-7")
                 .get()
-                .single()
-        assertEquals(NetworkType.CONNECTED, info.constraints.requiredNetworkType)
+        // APPEND_OR_REPLACE: the second request waits behind the first instead of being dropped (KEEP would leave one)
+        assertEquals(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED), infos.map { it.state }.sorted())
+        infos.forEach { assertEquals(NetworkType.CONNECTED, it.constraints.requiredNetworkType) }
     }
 }

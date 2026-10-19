@@ -101,7 +101,8 @@ fun enqueuePositionUpload(
 ) {
     WorkManager.getInstance(context).enqueueUniqueWork(
         positionUploadWork(accountId),
-        ExistingWorkPolicy.KEEP,
+        // Appends while a run is in progress, so a failure reported mid-run still gets a later run; reruns are harmless.
+        ExistingWorkPolicy.APPEND_OR_REPLACE,
         OneTimeWorkRequestBuilder<PositionUploadWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)

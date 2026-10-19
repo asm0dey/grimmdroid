@@ -117,7 +117,7 @@ class AppContainer(
             downloadRepository.delete(app, accountId, bookId)
         }
     val positionSync =
-        PositionSync(db.readerDao(), { id -> api(checkNotNull(accounts.account(id)) { "No account $id" }) }) { id ->
+        PositionSync(db.readerDao(), accounts::account, ::api) { id ->
             enqueuePositionUpload(app, id)
         }
     val exporter = Exporter(app)
