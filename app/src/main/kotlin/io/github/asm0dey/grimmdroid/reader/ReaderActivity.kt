@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -244,7 +245,7 @@ class ReaderActivity : FragmentActivity() {
     private fun navigatorFactory(
         pub: Publication,
         initial: Locator?,
-    ) = EpubNavigatorFactory(pub).createFragmentFactory(
+    ) = EpubNavigatorFactory(pub, readerNavigatorConfiguration(resources.configuration.fontScale)).createFragmentFactory(
         initialLocator = initial,
         initialPreferences = settings.toEpubPreferences(systemDark),
         listener = navigatorListener,
@@ -350,7 +351,8 @@ class ReaderActivity : FragmentActivity() {
                 onTocEntry = { navigator?.go(it) },
             )
             if (settingsOpen && pub != null) {
-                val factory = remember(pub) { EpubNavigatorFactory(pub) }
+                val fontScale = LocalConfiguration.current.fontScale
+                val factory = remember(pub, fontScale) { EpubNavigatorFactory(pub, readerNavigatorConfiguration(fontScale)) }
                 ReaderSettingsSheet(
                     settings = s,
                     systemDark = systemDark,
