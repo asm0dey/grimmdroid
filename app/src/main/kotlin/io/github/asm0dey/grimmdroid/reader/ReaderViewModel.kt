@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -138,10 +139,13 @@ class ReaderViewModel(
 
     private fun position() = current?.locations?.totalProgression
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun saved(): Locator? = initialLocator.takeIf { it.isCompleted }?.getCompleted()
+
     private fun moved(): Boolean {
         val now = position() ?: return false
         val start = openedAt ?: return false
-        return kotlin.math.abs(now - start) > SAME_PLACE
+        return now != start // exact: a few pages of a long book are within SAME_PLACE, and still the user's
     }
 
     private var save: Job? = null
@@ -153,24 +157,31 @@ class ReaderViewModel(
             val local = localRow.await()?.totalProgression
             online.first { it }
             val server = fetchServer()
+            // Resolved first, so nothing suspends between the decision and acting on it.
+            // No server place (or one not in this file): the phone's position goes up; PositionSync holds it back
+            // if the server is further ahead.
+            val target = server?.let { toLocator(it) } ?: return@launch scheduleUpload()
             // Decided against where the reader is now: the user may have read on while offline or waiting.
-            when (val d = decideOnOpen(if (local == null && !moved()) null else position() ?: local, server)) {
-                is OpenDecision.OpenAt -> toLocator(d.p)?.let { if (!moved()) go(it) else offer(d.p) }
-                is OpenDecision.OfferJump -> offer(d.p)
+            val now = position()
+            when (val d = decideOnOpen(if (local == null && !moved()) null else now ?: local, server)) {
+                // Never backwards: unmoved with no saved place means at the start, but check anyway.
+                is OpenDecision.OpenAt -> if (d.p.totalProgression >= (now ?: 0.0)) go(target) else scheduleUpload()
+
+                is OpenDecision.OfferJump -> offer(target, d.p)
+
                 OpenDecision.Stay -> scheduleUpload() // behind or equal: the phone's position goes up
             }
         }
     }
 
     /**
-     * The locator to create the navigator with ([saved], or the book's start). Readium's currentLocator starts as
-     * this very locator; that echo is not a report.
+     * The locator to create the navigator with: the last recorded one, else the saved place, else the book's start.
+     * Call it once [initialLocator] has completed, so a known saved place is never replaced by the start. Readium's
+     * currentLocator starts as this very locator; that echo is not a report.
      */
-    fun navigatorStart(
-        pub: Publication,
-        saved: Locator?,
-    ): Locator? =
-        (current ?: saved ?: pub.readingOrder.firstOrNull()?.let(pub::locatorFromLink)).also {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun navigatorStart(pub: Publication): Locator? =
+        (current ?: saved() ?: pub.readingOrder.firstOrNull()?.let(pub::locatorFromLink)).also {
             echo = it
             if (openedAt == null) openedAt = it?.locations?.totalProgression ?: 0.0 // the book's start has none
         }
@@ -234,7 +245,7 @@ class ReaderViewModel(
             val server = fetchServer() ?: return@launch
             val local = position() ?: localRow.await()?.totalProgression ?: 0.0
             when (val d = decideOnSyncNow(local, server)) {
-                is OpenDecision.OfferJump -> offer(d.p)
+                is OpenDecision.OfferJump -> toLocator(d.p)?.let { offer(it, d.p) }
                 else -> _jump.value = null
             }
         }
@@ -310,8 +321,10 @@ class ReaderViewModel(
         return withContext(io) { serverPosition(dto, archive) }
     }
 
-    private suspend fun offer(p: ServerPosition) {
-        val locator = toLocator(p) ?: return
+    private fun offer(
+        locator: Locator,
+        p: ServerPosition,
+    ) {
         _jump.value = JumpOffer(locator, (p.totalProgression * 100).roundToInt(), p is ServerPosition.Approximate)
     }
 

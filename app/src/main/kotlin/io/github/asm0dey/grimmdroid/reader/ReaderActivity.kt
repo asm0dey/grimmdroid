@@ -113,14 +113,15 @@ class ReaderActivity : FragmentActivity() {
             super.onCreate(savedInstanceState)
             return finish()
         }
-        // The ViewModel keeps the book open across rotation: the restored navigator gets it right away.
+        // The ViewModel keeps the book open across rotation: the restored navigator gets it right away, once the
+        // saved place is known too, so the navigator never starts at the book's start over it.
         val open =
             vm.publication
-                .takeIf { it.isCompleted }
+                .takeIf { it.isCompleted && vm.initialLocator.isCompleted }
                 ?.getCompleted()
                 ?.getOrNull()
         supportFragmentManager.fragmentFactory =
-            open?.let { navigatorFactory(it, vm.navigatorStart(it, null)) } ?: EpubNavigatorFragment.createDummyFactory()
+            open?.let { navigatorFactory(it, vm.navigatorStart(it)) } ?: EpubNavigatorFragment.createDummyFactory()
         supportFragmentManager.registerFragmentLifecycleCallbacks(
             object : FragmentManager.FragmentLifecycleCallbacks() {
                 override fun onFragmentViewCreated(
@@ -161,11 +162,11 @@ class ReaderActivity : FragmentActivity() {
                     Toast.makeText(this@ReaderActivity, it.message, Toast.LENGTH_LONG).show()
                     return@launch finish()
                 }
-            val saved = vm.initialLocator.await()
+            vm.initialLocator.await() // navigatorStart needs the saved place
             // A commit after onSaveInstanceState throws: wait until the activity is visible again.
             withStarted {
                 publication = pub
-                supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub, saved))
+                supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub))
                 supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
             }
         }
