@@ -183,3 +183,60 @@ data class MagicShelfDto(
     val id: Long,
     val name: String,
 )
+
+@Serializable
+data class BookProgressDto(
+    val epubProgress: EpubProgressDto? = null,
+    val koreaderProgress: KoreaderProgressDto? = null,
+)
+
+@Serializable
+data class EpubProgressDto(
+    val cfi: String? = null,
+    val href: String? = null,
+    val percentage: Float? = null,
+    val updatedAt: String? = null,
+)
+
+@Serializable
+data class KoreaderProgressDto(
+    val percentage: Float? = null,
+    val lastSyncTime: String? = null,
+)
+
+@Serializable
+data class UpdateProgressDto(
+    val fileProgress: FileProgressDto,
+)
+
+@Serializable
+data class FileProgressDto(
+    val bookFileId: Long,
+    val positionData: String? = null,
+    val positionHref: String? = null,
+    val progressPercent: Float,
+)
+
+@Serializable
+data class BookmarkDto(
+    val id: Long,
+    val bookId: Long,
+    val cfi: String? = null,
+    val title: String? = null,
+    val createdAt: String? = null,
+)
+
+@Serializable
+data class CreateBookmarkDto(
+    val bookId: Long,
+    val cfi: String,
+    val title: String? = null,
+)
+
+@Serializable
+data class CustomFontDto(
+    val id: Long,
+    val fontName: String,
+    val format: String,
+    val fileSize: Long? = null,
+)
