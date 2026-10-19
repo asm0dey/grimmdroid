@@ -1,0 +1,13 @@
+{
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest", "bump"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true
+  }
+}

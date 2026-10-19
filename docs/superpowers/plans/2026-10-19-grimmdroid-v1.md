@@ -124,7 +124,7 @@ app/src/integrationTest/kotlin/...                     Task 16
 
 - [ ] **Step 1: Write failing tests** (MockEngine):
   - `normalizeBaseUrl("books.example.net/") shouldBe "https://books.example.net"`; `"http://10.0.0.2:6060" ` stays as is.
-  - JSON for `/api/v1/public-settings` + `/api/v1/version` (`{"current":"v3.5.0","latest":"v3.5.0"}`) ⇒ `Ok(version="v3.5.0", cleartext=false)`.
+  - JSON for `/api/v1/public-settings` + `/api/v1/healthcheck` (`{"data":{"status":"UP","version":"v3.5.0"},…}`; `/api/v1/version` needs auth) ⇒ `Ok(version="v3.5.0", cleartext=false)`.
   - `http://` URL ⇒ `Ok(cleartext = true)`.
   - `html response classifies as NotGrimmory` (200 `text/html` login page from a proxy).
   - 404 on `public-settings` ⇒ `NotGrimmory`.

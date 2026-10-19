@@ -1,0 +1,51 @@
+# Throwaway Grimmory for ./gradlew integrationTest, adapted from upstream deploy/compose/docker-compose.yml.
+# Up: docker compose -f integration/docker-compose.yml up -d --wait   Down: docker compose -f integration/docker-compose.yml down -v
+services:
+  grimmory:
+    image: ghcr.io/grimmory-tools/grimmory:v3.5.0
+    environment:
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - TZ=Etc/UTC
+      - DATABASE_URL=jdbc:mariadb://mariadb:3306/grimmory
+      - DATABASE_USERNAME=grimmory
+      - DATABASE_PASSWORD=integration
+      - SWAGGER_ENABLED=false
+      - FORCE_DISABLE_OIDC=false
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    ports:
+      - "6060:6060"
+    volumes:
+      - data:/app/data
+      - ./fixtures:/books:ro
+    healthcheck:
+      test: wget -q --spider http://localhost:6060/api/v1/healthcheck
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 120s
+      start_interval: 2s
+
+  mariadb:
+    image: lscr.io/linuxserver/mariadb:11.4.8
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+      - MYSQL_ROOT_PASSWORD=integration-root
+      - MYSQL_DATABASE=grimmory
+      - MYSQL_USER=grimmory
+      - MYSQL_PASSWORD=integration
+    volumes:
+      - db:/config
+    healthcheck:
+      test: [ "CMD", "mariadb-admin", "ping", "-h", "localhost" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  data:
+  db:
