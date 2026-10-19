@@ -43,6 +43,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
+    // JVM-only integration tests compile with the unit tests but run only in integrationTest (needs a live server).
+    sourceSets["test"].kotlin.directories += "src/integrationTest/kotlin"
+
     buildFeatures {
         compose = true
     }
@@ -54,6 +57,7 @@ android {
                 it.useJUnitPlatform()
                 // Robolectric's Android 17 (SDK 37) sandbox reaches into jdk.internal.access.
                 it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+                it.exclude("io/github/asm0dey/grimmdroid/integration/**")
             }
         }
     }
@@ -102,4 +106,18 @@ dependencies {
     testImplementation(libs.androidx.test.espresso.core)
     testRuntimeOnly(libs.junit.vintage.engine)
     testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+// Not part of check: run against integration/docker-compose.yml (see .github/workflows/integration.yml).
+tasks.register<Test>("integrationTest") {
+    description = "Runs LiveServerTest against a running Grimmory (GRIMMORY_URL, default http://localhost:6060)."
+    group = "verification"
+    val unit = tasks.named<Test>("testDebugUnitTest").get()
+    testClassesDirs = unit.testClassesDirs
+    classpath = unit.classpath
+    include("io/github/asm0dey/grimmdroid/integration/**")
+    useJUnitPlatform()
+    systemProperty("grimmdroid.fixtures", rootProject.file("integration/fixtures").path)
+    environment("GRIMMORY_URL", System.getenv("GRIMMORY_URL") ?: "http://localhost:6060")
+    outputs.upToDateWhen { false }
 }

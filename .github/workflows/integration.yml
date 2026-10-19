@@ -1,0 +1,32 @@
+name: Integration
+
+# Not a merge gate: pulls the Grimmory image and runs LiveServerTest against it.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Java from .sdkmanrc
+        uses: jdx/mise-action@fc42bcc7ddbf51124c30f95a877a0c5168a3bfde # v5.2.1
+        with:
+          install_args: "java"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Start Grimmory
+        run: docker compose -f integration/docker-compose.yml up -d --wait
+      - run: ./gradlew integrationTest
+      - name: Server logs
+        if: failure()
+        run: docker compose -f integration/docker-compose.yml logs grimmory
+      - name: Stop Grimmory
+        if: always()
+        run: docker compose -f integration/docker-compose.yml down -v
