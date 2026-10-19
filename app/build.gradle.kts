@@ -41,6 +41,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+        // Readium 3.4.0 refuses to build without core library desugaring.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     // JVM-only integration tests compile with the unit tests but run only in integrationTest (needs a live server).
@@ -48,6 +50,11 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        // Readium ships Timber's lint checks; the app logs with android.util.Log.
+        disable += "LogNotTimber"
     }
 
     testOptions {
@@ -96,6 +103,12 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.fragment.ktx)
+    implementation(libs.readium.shared)
+    implementation(libs.readium.streamer)
+    implementation(libs.readium.navigator)
+    implementation(libs.jsoup)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     testImplementation(libs.kotest.runner.junit6)
     testImplementation(libs.kotest.assertions.core)
