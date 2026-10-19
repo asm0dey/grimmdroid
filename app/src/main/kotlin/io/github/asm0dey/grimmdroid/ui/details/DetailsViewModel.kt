@@ -107,11 +107,13 @@ class DetailsViewModel(
                         val stale =
                             row == null || row.state == DownloadState.FAILED ||
                                 (row.state == DownloadState.DONE && !File(row.path).exists())
+                        // A queued/running row with no pending work outlived its worker (e.g. process death): offer Download.
+                        val orphaned = !pending && (row?.state == DownloadState.QUEUED || row?.state == DownloadState.RUNNING)
                         val effective =
-                            if (pending && stale) {
-                                DownloadEntity(acc.id, bookId, 0, "", "", 0, DownloadState.QUEUED, -1f)
-                            } else {
-                                row
+                            when {
+                                pending && stale -> DownloadEntity(acc.id, bookId, 0, "", "", 0, DownloadState.QUEUED, -1f)
+                                orphaned -> null
+                                else -> row
                             }
                         DetailsState(
                             account = acc,

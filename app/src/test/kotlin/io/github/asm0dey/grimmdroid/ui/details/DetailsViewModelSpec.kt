@@ -106,11 +106,13 @@ class DetailsViewModelSpec :
         test("a failed download drops the pending share") {
             runTest(dispatcher) {
                 val rows = MutableStateFlow<DownloadEntity?>(null)
-                val vm = vm(rows)
+                val work = MutableStateFlow<WorkInfo?>(WorkInfo(UUID.randomUUID(), WorkInfo.State.RUNNING, emptySet()))
+                val vm = vm(rows, work = work)
                 val events = mutableListOf<DetailsEvent>()
                 backgroundScope.launch { vm.events.toList(events) }
                 vm.download(null, share = true)
                 rows.value = row(DownloadState.RUNNING)
+                work.value = WorkInfo(UUID.randomUUID(), WorkInfo.State.FAILED, emptySet())
                 rows.value = row(DownloadState.FAILED)
                 vm.state.value.failure shouldBe "other"
                 rows.value = row(DownloadState.DONE)
@@ -157,6 +159,19 @@ class DetailsViewModelSpec :
                 }
                 // Without pending work the vanished file just offers Download again.
                 vm(MutableStateFlow(gone)).state.value.action shouldBe PrimaryAction.Download
+            }
+        }
+
+        test("a queued or running row without pending work is stale: Download, not a no-op Cancel") {
+            runTest(dispatcher) {
+                val done = WorkInfo(UUID.randomUUID(), WorkInfo.State.CANCELLED, emptySet())
+                for (work in listOf(flowOf(null), flowOf(done))) {
+                    for (state in listOf(DownloadState.QUEUED, DownloadState.RUNNING)) {
+                        val vm = vm(MutableStateFlow(row(state)), work = work)
+                        vm.state.value.action shouldBe PrimaryAction.Download
+                        vm.state.value.failure shouldBe null
+                    }
+                }
             }
         }
 
