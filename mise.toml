@@ -15,14 +15,14 @@ android-sdk = "23.0"
 [env]
 # The one list of SDK packages `mise run setup` installs: compileSdk 37 (app/build.gradle.kts) and
 # AGP 9.4.1's default build-tools (ToolsRevisionUtils.DEFAULT_BUILD_TOOLS_REVISION). Bump with AGP.
-ANDROID_SDK_PACKAGES = "platforms;android-37.0 build-tools;36.0.0 platform-tools"
+ANDROID_SDK_PACKAGES = "platforms/android-37.0 build-tools/36.0.0 platform-tools"
 
 # Thin wrappers: the commands themselves live in Gradle / fastlane.
 [tasks.setup]
-description = "Install Ruby gems (fastlane) and the Android SDK packages (the new sdkmanager accepts licences itself) (local dev only, not CI)"
+description = "Install Ruby gems (fastlane) and the Android SDK packages (the Android CLI accepts licences itself) (local dev only, not CI)"
 run = [
   "bundle install",
-  "sdkmanager --install $ANDROID_SDK_PACKAGES",
+  "android sdk install $ANDROID_SDK_PACKAGES",
 ]
 
 [tasks.test]
