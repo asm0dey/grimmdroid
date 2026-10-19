@@ -18,20 +18,20 @@
 package io.github.asm0dey.grimmdroid
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import io.github.asm0dey.grimmdroid.auth.OidcRedirects
+import io.github.asm0dey.grimmdroid.settings.ThemeMode
+import io.github.asm0dey.grimmdroid.ui.nav.AppNav
+import io.github.asm0dey.grimmdroid.ui.theme.GrimmdroidTheme
+import io.github.asm0dey.grimmdroid.ui.theme.isDark
 import io.ktor.http.Url
 
 class MainActivity : ComponentActivity() {
@@ -40,10 +40,18 @@ class MainActivity : ComponentActivity() {
         // On recreation the same Intent comes back; its redirect was already forwarded.
         if (savedInstanceState == null) forwardOidcRedirect(intent)
         enableEdgeToEdge()
+        val container = (application as GrimmdroidApp).container
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-                Scaffold { padding -> Box(Modifier.padding(padding).fillMaxSize()) }
+            val mode by container.settings.theme.collectAsState(ThemeMode.SYSTEM)
+            val dynamic by container.settings.dynamicColor.collectAsState(true)
+            val dark = mode.isDark()
+            // System-bar icons follow the app's theme, which can differ from the system's.
+            DisposableEffect(dark) {
+                val style = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                onDispose {}
             }
+            GrimmdroidTheme(mode, dynamic) { AppNav(container) }
         }
     }
 

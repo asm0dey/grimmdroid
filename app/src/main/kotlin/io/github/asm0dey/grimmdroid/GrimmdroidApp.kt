@@ -18,5 +18,17 @@
 package io.github.asm0dey.grimmdroid
 
 import android.app.Application
+import io.github.asm0dey.grimmdroid.download.DownloadHost
+import io.github.asm0dey.grimmdroid.sync.SyncHost
 
-class GrimmdroidApp : Application()
+class GrimmdroidApp :
+    Application(),
+    SyncHost,
+    DownloadHost {
+    // Lazy: Robolectric tests start this Application without touching the container.
+    val container by lazy { AppContainer(this) }
+
+    override val librarySync get() = container.librarySync
+    override val downloadRepository get() = container.downloadRepository
+    override val afterDownload get() = container.afterDownload
+}
