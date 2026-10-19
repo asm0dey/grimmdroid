@@ -112,6 +112,18 @@ class ServerProbeSpec :
             probe("books.example.net") { respondError(HttpStatusCode.NotFound) } shouldBe ProbeResult.NotGrimmory
         }
 
+        test("public-settings OK but healthcheck not Grimmory's is NotGrimmory") {
+            for (health in listOf(null, """{"status":"UP"}""")) {
+                probe("books.example.net") { path ->
+                    when {
+                        path == "/api/v1/public-settings" -> respond(settingsJson, HttpStatusCode.OK, jsonHeaders)
+                        health != null && path == "/api/v1/healthcheck" -> respond(health, HttpStatusCode.OK, jsonHeaders)
+                        else -> respondError(HttpStatusCode.NotFound)
+                    }
+                } shouldBe ProbeResult.NotGrimmory
+            }
+        }
+
         test("IOException and UnknownHostException are Unreachable") {
             probe("books.example.net", { throw IOException("boom") }) { ok(it) } shouldBe ProbeResult.Unreachable
             probe("books.example.net", { throw UnknownHostException("x") }) { ok(it) } shouldBe ProbeResult.Unreachable
