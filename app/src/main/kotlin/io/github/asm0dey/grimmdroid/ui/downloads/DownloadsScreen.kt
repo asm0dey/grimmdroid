@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -134,7 +135,7 @@ fun DownloadsScreen(
                     onClick = vm::clearSelection,
                 ) { Icon(painterResource(R.drawable.ic_close), stringResource(R.string.clear_selection)) }
                 Text(
-                    stringResource(R.string.selected_count, selection.size),
+                    pluralStringResource(R.plurals.selected_count, selection.size, selection.size),
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.titleSmall,
                 )

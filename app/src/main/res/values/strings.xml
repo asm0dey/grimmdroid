@@ -74,7 +74,10 @@
     <string name="see_all">See all</string>
     <string name="downloads_empty">Books you download appear here</string>
     <string name="downloads_total">%1$s used on this phone</string>
-    <string name="selected_count">%1$d selected</string>
+    <plurals name="selected_count">
+        <item quantity="one">%d selected</item>
+        <item quantity="other">%d selected</item>
+    </plurals>
     <string name="delete_action">Delete</string>
     <string name="save_to_folder_action">Save to folder</string>
     <string name="clear_selection">Clear selection</string>
