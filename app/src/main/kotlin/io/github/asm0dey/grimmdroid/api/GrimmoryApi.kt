@@ -19,6 +19,7 @@ package io.github.asm0dey.grimmdroid.api
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.ServerResponseException
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 
@@ -54,7 +55,13 @@ class GrimmoryApi(
 
     suspend fun book(id: Long): BookDetailDto = client.get("api/v1/app/books/$id").body()
 
-    suspend fun libraries(): List<LibraryDto> = client.get("api/v1/app/libraries").body()
+    // Grimmory v3.5.0's app endpoint answers 500 for any library (lazy libraryPaths); the web one lists the same libraries.
+    suspend fun libraries(): List<LibraryDto> =
+        try {
+            client.get("api/v1/app/libraries").body()
+        } catch (e: ServerResponseException) {
+            client.get("api/v1/libraries").body()
+        }
 
     suspend fun shelves(): List<ShelfDto> = client.get("api/v1/app/shelves").body()
 

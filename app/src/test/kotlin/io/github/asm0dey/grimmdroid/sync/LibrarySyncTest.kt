@@ -83,6 +83,7 @@ private class FakeServer {
     var meMissing = false
     var shelfIdsMissing = false
     var version: String? = "v9.9.9"
+    var appLibrariesBroken = false
 
     val engine =
         MockEngine { req ->
@@ -111,7 +112,12 @@ private class FakeServer {
                             }
 
                             "/api/v1/app/libraries" -> {
+                                if (appLibrariesBroken) return@MockEngine respondError(HttpStatusCode.InternalServerError)
                                 """[{"id":1,"name":"L","bookCount":${titles.size}}]"""
+                            }
+
+                            "/api/v1/libraries" -> {
+                                """[{"id":1,"name":"Web L","watch":false,"paths":[{"id":1,"path":"/books"}]}]"""
                             }
 
                             "/api/v1/app/shelves" -> {
@@ -226,6 +232,25 @@ class LibrarySyncTest {
             val progress = running.filter { it.done > 0 }
             assertTrue(progress.isNotEmpty())
             assertTrue(progress.all { it.total == 10_050 })
+        }
+
+    // Grimmory v3.5.0's /api/v1/app/libraries answers 500 (LazyInitializationException) for every user with a library.
+    @Test
+    fun brokenAppLibrariesEndpointFallsBackToWebLibraries() =
+        runBlocking {
+            server.appLibrariesBroken = true
+            server.titles = mapOf(1L to "One")
+            sync.sync(accountId)
+            assertEquals(SyncState.Idle, state())
+            assertEquals(
+                listOf("Web L"),
+                db
+                    .catalogDao()
+                    .libraries(accountId)
+                    .first()
+                    .map { it.name },
+            )
+            assertEquals(1, books().size)
         }
 
     @Test

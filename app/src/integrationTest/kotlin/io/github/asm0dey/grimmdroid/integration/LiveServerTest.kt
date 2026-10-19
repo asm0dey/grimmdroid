@@ -213,6 +213,10 @@ class LiveServerTest :
             Instant.parse(detail.addedOn.shouldNotBeNull())
         }
 
+        test("libraries list the fixture library") {
+            api.libraries().map { it.name } shouldBe listOf("Fixtures")
+        }
+
         test("bookIds returns every book id") {
             api.bookIds() shouldContainExactlyInAnyOrder api.books(0).content.map { it.id }
         }
