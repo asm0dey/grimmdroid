@@ -23,7 +23,22 @@ import io.github.asm0dey.grimmdroid.account.AccountDao
 import io.github.asm0dey.grimmdroid.account.AccountEntity
 
 // shortcut: exportSchema off and no migrations at v1; Task 6 adds catalogue entities without a migration, enable schema export before first release.
-@Database(entities = [AccountEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities =
+        [
+            AccountEntity::class,
+            BookEntity::class,
+            BookFts::class,
+            LibraryEntity::class,
+            ShelfEntity::class,
+            ShelfBookCrossRef::class,
+            DownloadEntity::class,
+        ],
+    version = 1,
+    exportSchema = false,
+)
 abstract class CatalogDb : RoomDatabase() {
     abstract fun accountDao(): AccountDao
+
+    abstract fun catalogDao(): CatalogDao
 }
