@@ -48,6 +48,7 @@ import org.readium.r2.shared.util.Url
 import java.io.File
 import java.io.IOException
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.seconds
 
 /** "Further ahead on another device: [percent]% — Jump"; [approximate] targets read "about N%". */
 data class JumpOffer(
@@ -57,7 +58,7 @@ data class JumpOffer(
 )
 
 /** Debounce between the last page turn and the upload. */
-private const val UPLOAD_DEBOUNCE_MS = 3_000L
+private val UPLOAD_DEBOUNCE = 3.seconds
 
 /**
  * One open book: owns the publication and the CFI archive (closed in [onCleared]), saves every locator locally and
@@ -277,7 +278,7 @@ class ReaderViewModel(
         debounced?.cancel()
         debounced =
             viewModelScope.launch {
-                delay(UPLOAD_DEBOUNCE_MS)
+                delay(UPLOAD_DEBOUNCE)
                 save?.join()
                 upload()
             }

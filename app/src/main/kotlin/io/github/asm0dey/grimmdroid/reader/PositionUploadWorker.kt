@@ -37,7 +37,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 /** Implemented by the Application, like `SyncHost`, so the worker reaches the app's single instances. */
 interface PositionUploadHost {
@@ -111,7 +110,7 @@ fun enqueuePositionUpload(
         ExistingWorkPolicy.APPEND_OR_REPLACE,
         OneTimeWorkRequestBuilder<PositionUploadWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, java.time.Duration.ofMillis(WorkRequest.MIN_BACKOFF_MILLIS))
             .setInputData(workDataOf(PositionUploadWorker.KEY_ACCOUNT_ID to accountId))
             .build(),
     )

@@ -48,6 +48,7 @@ import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.html.cssSelector
 import org.readium.r2.shared.util.Url
 import org.readium.r2.shared.util.mediatype.MediaType
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val BOOK = 7L
 
@@ -327,10 +328,10 @@ class ReaderViewModelSpec {
             val vm = vm()
             until { server.gets.size == 1 }
             settle() // the answer lands and starts the debounce at virtual time 0
-            advanceTimeBy(2_900)
+            advanceTimeBy(2_900.milliseconds)
             settle()
             assertEquals(0, server.puts.size)
-            advanceTimeBy(200)
+            advanceTimeBy(200.milliseconds)
             until { server.puts.size == 1 }
             assertNull(vm.jump.value)
         }
@@ -386,7 +387,7 @@ class ReaderViewModelSpec {
             val vm = vm(MutableStateFlow(false))
             vm.publication.await()
             vm.onLocatorChanged(locator(0.45))
-            advanceTimeBy(3_100)
+            advanceTimeBy(3_100.milliseconds)
             settle()
             assertEquals(0, server.requests)
             assertNull(vm.jump.value)
