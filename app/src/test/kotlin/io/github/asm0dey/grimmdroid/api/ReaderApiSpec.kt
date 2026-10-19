@@ -18,7 +18,7 @@
 package io.github.asm0dey.grimmdroid.api
 
 import io.kotest.core.spec.style.FunSpec
-import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -119,11 +119,11 @@ class ReaderApiSpec :
                         json,
                     )
                 }.customFonts()
-            fonts.single().format shouldBe "TTF"
+            fonts!!.single().format shouldBe "TTF"
         }
 
-        test("customFonts maps 403 to empty") {
-            api(HttpMethod.Get, "/api/v1/custom-fonts") { respondError(HttpStatusCode.Forbidden) }.customFonts().shouldBeEmpty()
+        test("customFonts maps 403 to null") {
+            api(HttpMethod.Get, "/api/v1/custom-fonts") { respondError(HttpStatusCode.Forbidden) }.customFonts().shouldBeNull()
         }
 
         test("downloadFont streams to the target and leaves no temp file") {

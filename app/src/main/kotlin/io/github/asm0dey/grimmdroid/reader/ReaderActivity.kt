@@ -28,6 +28,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,10 +63,12 @@ import androidx.lifecycle.withStarted
 import io.github.asm0dey.grimmdroid.GrimmdroidApp
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.catalog.DownloadState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.readium.r2.navigator.HyperlinkNavigator
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
@@ -88,7 +91,7 @@ class ReaderActivity : FragmentActivity() {
         val accountId = intent.getLongExtra(EXTRA_ACCOUNT_ID, -1)
         val bookId = intent.getLongExtra(EXTRA_BOOK_ID, -1)
         val file = File(intent.getStringExtra(EXTRA_FILE).orEmpty())
-        val fontsDirs = listOf(filesDir.resolve("fonts/$accountId"), filesDir.resolve("fonts/local"))
+        val fontsDirs = container.fonts.dirs(accountId)
         viewModelFactory {
             initializer {
                 ReaderViewModel(
@@ -120,6 +123,21 @@ class ReaderActivity : FragmentActivity() {
     }
 
     private val settingsStore get() = (application as GrimmdroidApp).container.readerSettings
+    private val fontStore get() = (application as GrimmdroidApp).container.fonts
+    private val accountId get() = intent.getLongExtra(EXTRA_ACCOUNT_ID, -1)
+
+    // The custom fonts the navigator declares; a change recreates it.
+    private var fonts by mutableStateOf(emptyList<ReaderFont>())
+    private val pickFont =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            lifecycleScope.launch {
+                fontStore.import(this@ReaderActivity, uri).onFailure {
+                    Toast.makeText(this@ReaderActivity, R.string.reader_font_import_failed, Toast.LENGTH_SHORT).show()
+                }
+                refreshFonts()
+            }
+        }
     private var settings by mutableStateOf(ReaderSettings())
     private var settingsOpen by mutableStateOf(false)
     private var footnote by mutableStateOf<String?>(null)
@@ -203,6 +221,7 @@ class ReaderActivity : FragmentActivity() {
             false,
         )
         publication = open
+        fonts = fontStore.list(accountId) // a few file names, needed by the navigator created below
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -241,6 +260,13 @@ class ReaderActivity : FragmentActivity() {
             val madeCurrent = getString(R.string.position_made_current)
             vm.madeCurrent.collect { Toast.makeText(this@ReaderActivity, madeCurrent, Toast.LENGTH_SHORT).show() }
         }
+        lifecycleScope.launch {
+            (application as GrimmdroidApp)
+                .container.connectivity.online
+                .first { it }
+            fontStore.syncServer(accountId)
+            refreshFonts()
+        }
         if (open != null) return
         lifecycleScope.launch {
             val pub =
@@ -268,7 +294,27 @@ class ReaderActivity : FragmentActivity() {
         initialPreferences = settings.toEpubPreferences(systemDark),
         listener = navigatorListener,
         paginationListener = paginationListener,
+        configuration = readerFragmentConfiguration(fonts),
     )
+
+    /** Re-reads the custom fonts; when they changed, recreates the navigator at the current place so it declares them. */
+    private suspend fun refreshFonts() {
+        val now = withContext(Dispatchers.IO) { fontStore.list(accountId) }
+        if (now == fonts) return
+        fonts = now
+        val pub = publication ?: return // the navigator is created later, with these fonts
+        if (navigator == null) return
+        withStarted {
+            supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub))
+            supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
+        }
+    }
+
+    private fun deleteFont(font: ReaderFont) {
+        fontStore.delete(font)
+        if (settings.fontFamily == font.family) updateSettings { it.copy(fontFamily = null) }
+        lifecycleScope.launch { refreshFonts() }
+    }
 
     private val navigator get() = supportFragmentManager.findFragmentById(R.id.reader_navigator) as? EpubNavigatorFragment
 
@@ -404,6 +450,9 @@ class ReaderActivity : FragmentActivity() {
                     onEpub = { edit ->
                         updateSettings { it.copy(epub = factory.createPreferencesEditor(it.epub).apply(edit).preferences) }
                     },
+                    fonts = fonts,
+                    onAddFont = { pickFont.launch(FONT_TYPES) },
+                    onDeleteFont = ::deleteFont,
                     onDismiss = { settingsOpen = false },
                 )
             }
@@ -445,6 +494,10 @@ class ReaderActivity : FragmentActivity() {
         private const val EXTRA_ACCOUNT_ID = "accountId"
         private const val EXTRA_BOOK_ID = "bookId"
         private const val EXTRA_FILE = "file"
+
+        // What the picker offers; Fonts.import still checks the file's signature.
+        private val FONT_TYPES =
+            arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/vnd.ms-opentype", "application/octet-stream")
 
         fun intent(
             context: Context,

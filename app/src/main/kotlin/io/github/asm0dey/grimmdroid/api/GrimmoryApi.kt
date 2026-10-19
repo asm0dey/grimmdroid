@@ -112,12 +112,12 @@ class GrimmoryApi(
         client.delete("api/v1/bookmarks/$id")
     }
 
-    // The server answers 403 to accounts without the font permission: no custom fonts, not an error.
-    suspend fun customFonts(): List<CustomFontDto> =
+    // The server answers 403 to accounts without the font permission: null, not an error, so fonts already kept stay.
+    suspend fun customFonts(): List<CustomFontDto>? =
         try {
             client.get("api/v1/custom-fonts").body()
         } catch (e: ClientRequestException) {
-            if (e.response.status == HttpStatusCode.Forbidden) emptyList() else throw e
+            if (e.response.status == HttpStatusCode.Forbidden) null else throw e
         }
 
     /** Streams the font to a temp file beside [target], then renames it into place. */

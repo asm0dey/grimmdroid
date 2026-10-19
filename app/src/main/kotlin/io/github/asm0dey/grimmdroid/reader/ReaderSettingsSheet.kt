@@ -39,6 +39,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SegmentedButton
@@ -52,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -71,6 +74,7 @@ typealias EpubEdit = EpubPreferencesEditor.() -> Unit
 /**
  * Every reading setting. Drawn in the reader palette ([ReaderColors]) without a scrim, so the page above shows each
  * change live. [editor] builds a Readium preferences editor for the current book; [onUpdate] stores a change.
+ * [fonts] are the custom fonts; [onAddFont] picks a file to import, [onDeleteFont] removes an imported one.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -80,6 +84,9 @@ fun ReaderSettingsSheet(
     editor: (EpubPreferences) -> EpubPreferencesEditor,
     onUpdate: ((ReaderSettings) -> ReaderSettings) -> Unit,
     onEpub: (EpubEdit) -> Unit,
+    fonts: List<ReaderFont>,
+    onAddFont: () -> Unit,
+    onDeleteFont: (ReaderFont) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val shown = remember(settings.epub) { editor(settings.epub) }
@@ -113,7 +120,7 @@ fun ReaderSettingsSheet(
 
             Heading(R.string.reader_font)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                readerFontFamilies().forEach { family ->
+                readerFontFamilies(fonts).forEach { family ->
                     FilterChip(
                         selected = family?.name == settings.fontFamily,
                         onClick = { onUpdate { it.copy(fontFamily = family?.name) } },
@@ -121,6 +128,15 @@ fun ReaderSettingsSheet(
                     )
                 }
             }
+            fonts.filterNot { it.fromServer }.forEach { font ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(font.family, Modifier.weight(1f))
+                    IconButton(onClick = { onDeleteFont(font) }) {
+                        Icon(painterResource(R.drawable.ic_delete), stringResource(R.string.reader_font_delete, font.family))
+                    }
+                }
+            }
+            TextButton(onClick = onAddFont, Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.reader_font_add)) }
             Stepper(R.string.reader_font_size, shown, { fontSize }, onEpub)
             Stepper(R.string.reader_page_margins, shown, { pageMargins }, onEpub)
             Toggle(R.string.reader_scroll, shown, { scroll }, onEpub)

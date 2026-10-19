@@ -19,6 +19,11 @@ package io.github.asm0dey.grimmdroid.reader
 
 import org.readium.r2.navigator.epub.EpubDefaults
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
+import org.readium.r2.navigator.epub.EpubNavigatorFragment
+import org.readium.r2.navigator.epub.css.FontStyle
+import org.readium.r2.navigator.epub.css.FontWeight
+import org.readium.r2.navigator.preferences.FontFamily
+import org.readium.r2.shared.ExperimentalReadiumApi
 import kotlin.math.roundToInt
 
 /** Readium's textZoom ignores Android's font scale, so the default reads small; boost it. */
@@ -29,3 +34,18 @@ fun defaultFontSize(fontScale: Float): Double = (fontScale * DEFAULT_FONT_SCALE_
 
 fun readerNavigatorConfiguration(fontScale: Float) =
     EpubNavigatorFactory.Configuration(defaults = EpubDefaults(fontSize = defaultFontSize(fontScale)))
+
+/** The navigator fragment's configuration: each of [fonts] declared as a family, loaded through [FontServingContainer]. */
+@OptIn(ExperimentalReadiumApi::class)
+fun readerFragmentConfiguration(fonts: List<ReaderFont>) =
+    EpubNavigatorFragment.Configuration {
+        fonts.forEach { font ->
+            addFontFamilyDeclaration(FontFamily(font.family)) {
+                addFontFace {
+                    addSource(fontUrl(font.file))
+                    setFontStyle(FontStyle.NORMAL)
+                    setFontWeight(FontWeight.NORMAL)
+                }
+            }
+        }
+    }

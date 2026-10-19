@@ -171,6 +171,9 @@
     <string name="reader_mode_dark">Dark</string>
     <string name="reader_font">Font</string>
     <string name="reader_font_publisher">Publisher default</string>
+    <string name="reader_font_add">Add font…</string>
+    <string name="reader_font_delete">Delete font %1$s</string>
+    <string name="reader_font_import_failed">Not a TrueType or OpenType font</string>
     <string name="reader_font_size">Font size</string>
     <string name="reader_page_margins">Page margins</string>
     <string name="reader_line_height">Line height</string>

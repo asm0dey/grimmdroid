@@ -44,6 +44,7 @@ import io.github.asm0dey.grimmdroid.export.Exporter
 import io.github.asm0dey.grimmdroid.export.FolderExport
 import io.github.asm0dey.grimmdroid.net.Connectivity
 import io.github.asm0dey.grimmdroid.reader.Bookmarks
+import io.github.asm0dey.grimmdroid.reader.Fonts
 import io.github.asm0dey.grimmdroid.reader.PositionSync
 import io.github.asm0dey.grimmdroid.reader.ReaderSettingsStore
 import io.github.asm0dey.grimmdroid.reader.enqueuePositionUpload
@@ -134,6 +135,7 @@ class AppContainer(
 
     // Shares the position worker and its "follow-up queued" guard: the worker flushes both.
     val bookmarks = Bookmarks(db.readerDao(), accounts::account, ::api, positionSync::uploadLater)
+    val fonts = Fonts(app.filesDir) { id -> accounts.account(id)?.takeUnless { it.signedOut }?.let(::api) }
     val exporter = Exporter(app)
     val folderExport = FolderExport(app, settings)
     val afterDownload = AfterDownload(settings, folderExport)

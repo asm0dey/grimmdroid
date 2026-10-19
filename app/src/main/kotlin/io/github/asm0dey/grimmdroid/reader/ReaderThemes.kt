@@ -84,8 +84,8 @@ fun ReaderSettings.toEpubPreferences(systemDark: Boolean): EpubPreferences {
     )
 }
 
-/** The font families the settings offer; null is the publisher's own. Task 12 adds custom fonts here. */
-fun readerFontFamilies(): List<FontFamily?> =
+/** The font families the settings offer: null is the publisher's own, then Readium's, then the [custom] ones. */
+fun readerFontFamilies(custom: List<ReaderFont>): List<FontFamily?> =
     listOf(
         null,
         FontFamily.SERIF,
@@ -95,4 +95,4 @@ fun readerFontFamilies(): List<FontFamily?> =
         FontFamily.OPEN_DYSLEXIC,
         FontFamily.ACCESSIBLE_DFA,
         FontFamily.IA_WRITER_DUOSPACE,
-    )
+    ) + custom.map { FontFamily(it.family) }
