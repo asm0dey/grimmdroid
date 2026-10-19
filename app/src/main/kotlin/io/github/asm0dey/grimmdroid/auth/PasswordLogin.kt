@@ -32,6 +32,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.ktor.http.protocolWithAuthority
 import kotlinx.coroutines.CancellationException
 
 sealed interface LoginResult {
@@ -76,13 +77,7 @@ class PasswordLogin(
                 }
 
                 else -> {
-                    val tokens = login.tokens()
-                    val me = client.get("$baseUrl/api/v1/app/users/me") { bearerAuth(tokens.accessToken) }
-                    when {
-                        me.status == HttpStatusCode.NotFound -> LoginResult.Unsupported(serverVersion)
-                        !me.status.isSuccess() -> LoginResult.Failed(httpError(me))
-                        else -> LoginResult.Ok(tokens, me.body())
-                    }
+                    client.checkAppApi(baseUrl, serverVersion, login.tokens())
                 }
             }
         } catch (e: CancellationException) {
@@ -90,6 +85,23 @@ class PasswordLogin(
         } catch (e: Exception) {
             LoginResult.Failed(e)
         }
-
-    private fun httpError(response: HttpResponse) = IllegalStateException("HTTP ${response.status} from ${response.call.request.url}")
 }
+
+// Fresh tokens are only usable if the server has the app API (404 = too old) — shared by password and OIDC login.
+internal suspend fun HttpClient.checkAppApi(
+    baseUrl: String,
+    serverVersion: String,
+    tokens: Tokens,
+): LoginResult {
+    val me = get("$baseUrl/api/v1/app/users/me") { bearerAuth(tokens.accessToken) }
+    return when {
+        me.status == HttpStatusCode.NotFound -> LoginResult.Unsupported(serverVersion)
+        !me.status.isSuccess() -> LoginResult.Failed(httpError(me))
+        else -> LoginResult.Ok(tokens, me.body())
+    }
+}
+
+// Path only: a query string may carry secrets (OIDC code / verifier).
+internal fun httpError(response: HttpResponse) =
+    response.call.request.url
+        .let { IllegalStateException("HTTP ${response.status} from ${it.protocolWithAuthority}${it.encodedPath}") }
