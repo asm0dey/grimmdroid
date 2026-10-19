@@ -20,39 +20,52 @@ package io.github.asm0dey.grimmdroid.account
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface AccountDao {
+abstract class AccountDao {
     @Query("SELECT * FROM AccountEntity ORDER BY id")
-    fun all(): Flow<List<AccountEntity>>
+    abstract fun all(): Flow<List<AccountEntity>>
 
     @Query("SELECT * FROM AccountEntity WHERE id = :id")
-    suspend fun get(id: Long): AccountEntity?
+    abstract suspend fun get(id: Long): AccountEntity?
 
     @Query("SELECT * FROM AccountEntity WHERE baseUrl = :baseUrl AND username = :username")
-    suspend fun find(
+    abstract suspend fun find(
         baseUrl: String,
         username: String,
     ): AccountEntity?
 
     @Insert
-    suspend fun insert(account: AccountEntity): Long
+    abstract suspend fun insert(account: AccountEntity): Long
 
     @Update
-    suspend fun update(account: AccountEntity)
+    abstract suspend fun update(account: AccountEntity)
 
     @Query("UPDATE AccountEntity SET encryptedTokens = :tokens, signedOut = :signedOut WHERE id = :id")
-    suspend fun setTokens(
+    abstract suspend fun setTokens(
         id: Long,
         tokens: ByteArray?,
         signedOut: Boolean,
     )
 
     @Query("UPDATE AccountEntity SET signedOut = 1 WHERE id = :id")
-    suspend fun markSignedOut(id: Long)
+    abstract suspend fun markSignedOut(id: Long)
 
     @Query("DELETE FROM AccountEntity WHERE id = :id")
-    suspend fun delete(id: Long)
+    abstract suspend fun delete(id: Long)
+
+    // Atomic find-then-write on the unique (baseUrl, username) index.
+    @Transaction
+    open suspend fun upsert(account: AccountEntity): Long {
+        val existing = find(account.baseUrl, account.username)
+        return if (existing == null) {
+            insert(account)
+        } else {
+            update(account.copy(id = existing.id, lastSyncedAt = existing.lastSyncedAt))
+            existing.id
+        }
+    }
 }

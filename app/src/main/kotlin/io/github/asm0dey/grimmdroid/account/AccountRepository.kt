@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.encodeToString
+import java.security.GeneralSecurityException
 
 class AccountRepository(
     private val dao: AccountDao,
@@ -46,19 +47,17 @@ class AccountRepository(
         user: AppUserInfo,
         tokens: Tokens,
     ): Long {
-        val existing = dao.find(baseUrl, username)
-        val row =
-            AccountEntity(
-                id = existing?.id ?: 0,
-                baseUrl = baseUrl,
-                username = username,
-                serverVersion = version,
-                canDownload = user.canDownload,
-                isAdmin = user.isAdmin,
-                encryptedTokens = seal(tokens),
-                lastSyncedAt = existing?.lastSyncedAt,
+        val id =
+            dao.upsert(
+                AccountEntity(
+                    baseUrl = baseUrl,
+                    username = username,
+                    serverVersion = version,
+                    canDownload = user.canDownload,
+                    isAdmin = user.isAdmin,
+                    encryptedTokens = seal(tokens),
+                ),
             )
-        val id = if (existing == null) dao.insert(row) else existing.id.also { dao.update(row) }
         settings.setCurrentAccountId(id)
         return id
     }
@@ -85,8 +84,23 @@ class AccountRepository(
 
     fun tokenSource(id: Long): TokenSource =
         object : TokenSource {
-            override suspend fun current(): Tokens? =
-                dao.get(id)?.encryptedTokens?.let { GrimmoryJson.decodeFromString<Tokens>(cipher.decrypt(it).decodeToString()) }
+            override suspend fun current(): Tokens? {
+                val blob = dao.get(id)?.encryptedTokens ?: return null
+                return try {
+                    GrimmoryJson.decodeFromString<Tokens>(cipher.decrypt(blob).decodeToString())
+                } catch (e: GeneralSecurityException) {
+                    unreadable()
+                } catch (e: IllegalArgumentException) {
+                    // includes SerializationException
+                    unreadable()
+                }
+            }
+
+            // Blob restored onto another device (or key lost): force a fresh sign-in instead of failing forever.
+            private suspend fun unreadable(): Tokens? {
+                dao.markSignedOut(id)
+                return null
+            }
 
             override suspend fun save(t: Tokens) = dao.setTokens(id, seal(t), signedOut = false)
 

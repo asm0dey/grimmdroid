@@ -33,7 +33,9 @@ interface TokenCipher {
 
 // Verified on device only: Robolectric has no AndroidKeyStore.
 class KeystoreTokenCipher : TokenCipher {
-    private fun key(): SecretKey {
+    private val key: SecretKey by lazy(::loadOrCreateKey)
+
+    private fun loadOrCreateKey(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getKey(ALIAS, null) as? SecretKey)?.let { return it }
         return KeyGenerator
@@ -42,6 +44,7 @@ class KeystoreTokenCipher : TokenCipher {
                 init(
                     KeyGenParameterSpec
                         .Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                        .setKeySize(256)
                         .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                         .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                         .build(),
@@ -50,14 +53,14 @@ class KeystoreTokenCipher : TokenCipher {
     }
 
     override fun encrypt(plain: ByteArray): ByteArray {
-        val c = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key()) }
+        val c = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key) }
         return c.iv + c.doFinal(plain)
     }
 
     override fun decrypt(cipher: ByteArray): ByteArray {
         val c =
             Cipher.getInstance(TRANSFORMATION).apply {
-                init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, cipher, 0, IV_BYTES))
+                init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, cipher, 0, IV_BYTES))
             }
         return c.doFinal(cipher, IV_BYTES, cipher.size - IV_BYTES)
     }

@@ -35,8 +35,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -44,6 +42,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.nio.file.Files
+import javax.crypto.AEADBadTagException
 
 private class FakeTokenCipher : TokenCipher {
     override fun encrypt(plain: ByteArray) = plain.map { (it.toInt() xor 0x5A).toByte() }.toByteArray()
@@ -141,15 +140,36 @@ class AccountRepositoryTest {
         }
 
     @Test
+    fun undecryptableBlobSignsOutAndReturnsNull() =
+        runBlocking {
+            val id = add("https://a")
+            val broken =
+                AccountRepository(
+                    db.accountDao(),
+                    object : TokenCipher {
+                        override fun encrypt(plain: ByteArray) = plain
+
+                        override fun decrypt(cipher: ByteArray): ByteArray = throw AEADBadTagException()
+                    },
+                    SettingsStore(PreferenceDataStoreFactory.create(scope = scope) { File(dir, "other.preferences_pb") }),
+                )
+            assertNull(broken.tokenSource(id).current())
+            assertTrue(
+                repo.accounts
+                    .first()
+                    .single()
+                    .signedOut,
+            )
+        }
+
+    @Test
     fun removingCurrentSwitchesToRemainingThenNull() =
         runBlocking {
             val a = add("https://a")
             val b = add("https://b")
             repo.remove(b, deleteDownloads = false)
             assertEquals(a, repo.current.first()?.id)
-            assertNotNull(repo.current.first())
             repo.remove(a, deleteDownloads = true)
             assertNull(repo.current.first())
-            assertNotEquals(a, b)
         }
 }
