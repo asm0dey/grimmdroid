@@ -74,11 +74,12 @@ class ServerProbe(
             } ?: return ProbeResult.InvalidAddress
         return try {
             val settings = get<PublicSettings>("$baseUrl/api/v1/public-settings")
-            val version = settings?.let { get<VersionInfo>("$baseUrl/api/v1/version") }
+            // /api/v1/version needs auth; the healthcheck is public and carries the same version string.
+            val version = settings?.let { get<Healthcheck>("$baseUrl/api/v1/healthcheck") }
             if (settings == null || version == null) {
                 ProbeResult.NotGrimmory
             } else {
-                ProbeResult.Ok(baseUrl, version.current, settings, cleartext = baseUrl.startsWith("http://"))
+                ProbeResult.Ok(baseUrl, version.data.version, settings, cleartext = baseUrl.startsWith("http://"))
             }
         } catch (e: CancellationException) {
             throw e

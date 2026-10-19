@@ -37,6 +37,17 @@ data class OidcProviderDetails(
     val scopes: String? = null,
 )
 
+// Public GET /api/v1/healthcheck, a SuccessResponse wrapper.
+@Serializable
+data class Healthcheck(
+    val data: HealthData,
+)
+
+@Serializable
+data class HealthData(
+    val version: String,
+)
+
 @Serializable
 data class VersionInfo(
     val current: String,

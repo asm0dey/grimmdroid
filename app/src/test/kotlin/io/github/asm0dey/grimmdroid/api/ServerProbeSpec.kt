@@ -31,7 +31,11 @@ import javax.net.ssl.SSLHandshakeException
 
 private val jsonHeaders = headersOf("Content-Type", ContentType.Application.Json.toString())
 private val settingsJson = """{"oidcEnabled":true,"remoteAuthEnabled":false,"extra":1}"""
-private val versionJson = """{"current":"v3.5.0","latest":"v3.5.0"}"""
+
+// Verbatim shape from Grimmory v3.5.0, which keeps /api/v1/version behind auth.
+private val healthJson =
+    """{"data":{"status":"UP","message":"Application is running smoothly.","timestamp":"2026-10-19T16:08:40.282572465",""" +
+        """"version":"v3.5.0"},"message":"Pong","status":200,"timestamp":"2026-10-19T16:08:40.282592233"}"""
 
 private fun probe(
     input: String,
@@ -45,7 +49,8 @@ private fun probe(
 private fun io.ktor.client.engine.mock.MockRequestHandleScope.ok(path: String) =
     when (path) {
         "/api/v1/public-settings" -> respond(settingsJson, HttpStatusCode.OK, jsonHeaders)
-        "/api/v1/version" -> respond(versionJson, HttpStatusCode.OK, jsonHeaders)
+        "/api/v1/healthcheck" -> respond(healthJson, HttpStatusCode.OK, jsonHeaders)
+        "/api/v1/version" -> respondError(HttpStatusCode.Unauthorized)
         else -> respondError(HttpStatusCode.NotFound)
     }
 
