@@ -72,6 +72,20 @@ class PasswordLoginSpec :
                 LoginResult.BadCredentials
         }
 
+        test("403 OIDC_ONLY_MODE is OidcOnly, a plain 403 stays BadCredentials") {
+            val oidcOnly =
+                MockEngine {
+                    respond(
+                        """{"status":403,"message":"Local login is disabled. Use OIDC to sign in."}""",
+                        HttpStatusCode.Forbidden,
+                        jsonHeaders,
+                    )
+                }
+            PasswordLogin(httpClient(oidcOnly)).login("https://grim.example", "v3.5.0", "pavel", "pw") shouldBe LoginResult.OidcOnly
+            val plain = MockEngine { respondError(HttpStatusCode.Forbidden) }
+            PasswordLogin(httpClient(plain)).login("https://grim.example", "v3.5.0", "pavel", "pw") shouldBe LoginResult.BadCredentials
+        }
+
         test("404 on app api classifies as Unsupported") {
             val engine =
                 MockEngine { request ->

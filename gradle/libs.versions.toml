@@ -22,6 +22,9 @@ paging = "3.5.3"
 work = "2.12.0"
 navigation = "2.10.2"
 espresso = "3.7.0"
+browser = "1.10.0"
+lifecycle = "2.11.0"
+coroutines = "1.11.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -37,6 +40,9 @@ compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 # ui-test-junit4 pulls espresso-core 3.5.0, which fails on the SDK 37 Robolectric sandbox
 androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
+androidx-browser = { module = "androidx.browser:browser", version.ref = "browser" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotest-runner-junit6 = { module = "io.kotest:kotest-runner-junit6", version.ref = "kotest" }
 kotest-assertions-core = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
 junit4 = { module = "junit:junit", version.ref = "junit4" }

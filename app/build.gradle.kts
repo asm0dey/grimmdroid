@@ -82,10 +82,13 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.browser)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     testImplementation(libs.kotest.runner.junit6)
     testImplementation(libs.kotest.assertions.core)
     testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)

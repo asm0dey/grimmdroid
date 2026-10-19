@@ -24,4 +24,22 @@
     <string name="signed_out_banner">Signed out of %1$s · Sign in</string>
     <string name="unknown_version">unknown</string>
     <string name="unsupported_banner">This server version isn\'t supported: %1$s. Syncing and downloads won\'t work.</string>
+    <string name="onboarding_title">Connect to your Grimmory server</string>
+    <string name="server_address">Server address</string>
+    <string name="continue_action">Continue</string>
+    <string name="cleartext_title">This connection isn\'t encrypted</string>
+    <string name="cleartext_body">%1$s uses plain http://. Your password and books travel unprotected, so anyone on the network can read them.</string>
+    <string name="continue_anyway">Continue anyway</string>
+    <string name="back_action">Back</string>
+    <string name="sign_in_title">Sign in to %1$s</string>
+    <string name="connection_checked">Grimmory %1$s · connection checked</string>
+    <string name="cleartext_short">Not encrypted (http://). Anyone on the network can read your password.</string>
+    <string name="sign_in_sso">Sign in with SSO</string>
+    <string name="or_divider">or</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="sign_in">Sign in</string>
+    <string name="sign_in_footer">After sign-in your library syncs in the background. You can browse right away.</string>
+    <string name="no_sign_in_method">This server allows neither password nor SSO sign-in. Ask its admin to enable one.</string>
+    <string name="default_password">You\'re using the default password. Change it in the Grimmory web UI.</string>
 </resources>

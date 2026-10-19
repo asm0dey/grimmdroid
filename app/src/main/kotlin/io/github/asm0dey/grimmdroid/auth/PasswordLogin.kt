@@ -28,6 +28,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -42,6 +43,9 @@ sealed interface LoginResult {
     ) : LoginResult
 
     data object BadCredentials : LoginResult
+
+    // 403 OIDC_ONLY_MODE: the server turned off password login (settings fetched earlier may be stale).
+    data object OidcOnly : LoginResult
 
     data class Unsupported(
         val serverVersion: String,
@@ -68,6 +72,10 @@ class PasswordLogin(
                     setBody(LoginRequest(username, password))
                 }
             when {
+                login.status == HttpStatusCode.Forbidden && login.bodyAsText().contains("OIDC", ignoreCase = true) -> {
+                    LoginResult.OidcOnly
+                }
+
                 login.status == HttpStatusCode.Unauthorized || login.status == HttpStatusCode.Forbidden -> {
                     LoginResult.BadCredentials
                 }

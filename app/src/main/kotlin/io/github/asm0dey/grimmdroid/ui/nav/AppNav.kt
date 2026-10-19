@@ -34,6 +34,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -60,7 +62,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import io.github.asm0dey.grimmdroid.AppContainer
 import io.github.asm0dey.grimmdroid.R
+import io.github.asm0dey.grimmdroid.auth.OidcRedirects
 import io.github.asm0dey.grimmdroid.sync.SyncState
+import io.github.asm0dey.grimmdroid.ui.onboarding.OnboardingRoute
 import kotlinx.coroutines.launch
 
 private enum class Tab(
@@ -99,11 +103,24 @@ fun AppNav(container: AppContainer) {
     LaunchedEffect(destination) { Tab.entries.firstOrNull { destination?.hasRoute(it.route::class) == true }?.let { tab = it } }
     val inShell = destination != null && !destination.hasRoute(Onboarding::class)
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    val defaultPassword = stringResource(R.string.default_password)
 
     RequestNotificationsOnce(inShell)
     ResetTabsOnAccountSwitch(nav, current?.id)
+    // An SSO redirect can arrive while Onboarding isn't showing (process death during "Add server"); its ViewModel finishes it.
+    LaunchedEffect(Unit) {
+        OidcRedirects.incoming.collect {
+            if (container.pendingOidc.load() != null &&
+                nav.currentDestination?.hasRoute(Onboarding::class) != true
+            ) {
+                nav.navigate(Onboarding)
+            }
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             if (inShell) {
                 Column {
@@ -145,9 +162,18 @@ fun AppNav(container: AppContainer) {
             }
         },
     ) { padding ->
-        // Placeholder bodies; Tasks 11–15 fill these in.
+        // Placeholder bodies; Tasks 12–15 fill these in.
         NavHost(nav, startDestination = start, modifier = Modifier.padding(padding)) {
-            composable<Onboarding> { Placeholder("Onboarding") }
+            composable<Onboarding> {
+                OnboardingRoute(container) { isDefault ->
+                    // Pops Onboarding even when it was the start destination; AppNav's start is frozen at first load.
+                    nav.navigate(Home) {
+                        popUpTo<Onboarding> { inclusive = true }
+                        launchSingleTop = true
+                    }
+                    if (isDefault) scope.launch { snackbar.showSnackbar(defaultPassword) }
+                }
+            }
             composable<Home> { Placeholder("Home") }
             composable<Library> { Placeholder("Library") }
             composable<Shelves> { Placeholder("Shelves") }
