@@ -47,6 +47,8 @@ class LibrarySync(
     private val accounts: AccountRepository,
     private val apiFor: (AccountEntity) -> GrimmoryApi,
     private val clock: () -> Long,
+    /** Stops the work and removes the files of a download whose book the server deleted (its row is already gone). */
+    private val discardDownload: suspend (accountId: Long, bookId: Long) -> Unit = { _, _ -> },
 ) {
     private val states = MutableStateFlow<Map<Long, SyncState>>(emptyMap())
     val state: StateFlow<Map<Long, SyncState>> = states.asStateFlow()
@@ -126,7 +128,7 @@ class LibrarySync(
             page++
         } while (res.hasNext)
 
-        dao.deleteBooksNotIn(id, generation)
+        dao.deleteBooksNotIn(id, generation).forEach { discardDownload(id, it) }
         accounts.setLastSyncedAt(id, clock())
     }
 }

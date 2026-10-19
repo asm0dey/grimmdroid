@@ -93,13 +93,16 @@ class AppContainer(
     // The identity provider must never receive Grimmory tokens.
     val oidcLogin = OidcLogin(httpClient)
 
-    val librarySync = LibrarySync(db.catalogDao(), accounts, ::api, System::currentTimeMillis)
     val downloadRepository =
         DownloadRepository(
             db.catalogDao(),
             { id -> authedClient(checkNotNull(accounts.account(id)) { "No account $id" }) },
             app.filesDir,
         )
+    val librarySync =
+        LibrarySync(db.catalogDao(), accounts, ::api, System::currentTimeMillis) { accountId, bookId ->
+            downloadRepository.delete(app, accountId, bookId)
+        }
     val exporter = Exporter(app)
     val folderExport = FolderExport(app, settings)
     val afterDownload = AfterDownload(settings, folderExport)

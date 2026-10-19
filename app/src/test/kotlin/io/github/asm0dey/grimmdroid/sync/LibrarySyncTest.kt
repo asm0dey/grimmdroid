@@ -33,6 +33,8 @@ import io.github.asm0dey.grimmdroid.api.authedClient
 import io.github.asm0dey.grimmdroid.catalog.BookEntity
 import io.github.asm0dey.grimmdroid.catalog.BookQuery
 import io.github.asm0dey.grimmdroid.catalog.CatalogDb
+import io.github.asm0dey.grimmdroid.catalog.DownloadEntity
+import io.github.asm0dey.grimmdroid.catalog.DownloadState
 import io.github.asm0dey.grimmdroid.catalog.toSql
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.ktor.client.engine.mock.MockEngine
@@ -178,6 +180,7 @@ class LibrarySyncTest {
     private val server = FakeServer()
     private var now = 1_000L
     private var accountId = 0L
+    private val discarded = mutableListOf<List<Long>>()
 
     @Before
     fun setUp() {
@@ -197,6 +200,7 @@ class LibrarySyncTest {
                 accounts,
                 { GrimmoryApi(authedClient(it.baseUrl, accounts.tokenSource(it.id), server.engine)) },
                 { now++ },
+                { a, b -> discarded += listOf(a, b) },
             )
     }
 
@@ -431,5 +435,23 @@ class LibrarySyncTest {
             assertTrue(state() is SyncState.Running)
             job.cancelAndJoin()
             assertEquals(SyncState.Idle, state())
+        }
+
+    @Test
+    fun serverDeletedBookIsKeptWhileDownloadedAndOthersLoseTheirDownloadRows() =
+        runBlocking {
+            server.titles = mapOf(1L to "Kept", 2L to "Failed", 3L to "Plain", 4L to "Live")
+            sync.sync(accountId)
+            val dao = db.catalogDao()
+            dao.upsertDownload(DownloadEntity(accountId, 1, 0, "f", "p", 1, DownloadState.DONE, 1f))
+            dao.upsertDownload(DownloadEntity(accountId, 2, 0, "f", "", 0, DownloadState.FAILED, 0f))
+            dao.upsertDownload(DownloadEntity(accountId, 4, 0, "f", "", 0, DownloadState.FAILED, 0f))
+            server.titles = mapOf(4L to "Live")
+            sync.sync(accountId)
+            assertEquals(listOf(1L, 4L), books().map { it.id }.sorted())
+            assertEquals(listOf(listOf(accountId, 2L)), discarded)
+            assertEquals(DownloadState.DONE, dao.download(accountId, 1).first()?.state)
+            assertNull(dao.download(accountId, 2).first())
+            assertEquals(DownloadState.FAILED, dao.download(accountId, 4).first()?.state)
         }
 }

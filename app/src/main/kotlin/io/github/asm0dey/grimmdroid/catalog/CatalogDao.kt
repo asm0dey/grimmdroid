@@ -46,11 +46,44 @@ abstract class CatalogDao {
     @Upsert
     abstract suspend fun upsertBooks(books: List<BookEntity>)
 
-    @Query("DELETE FROM BookEntity WHERE accountId = :accountId AND syncGeneration != :generation")
-    abstract suspend fun deleteBooksNotIn(
+    @Query(
+        "SELECT DISTINCT bookId FROM DownloadEntity WHERE accountId = :accountId AND bookId IN " +
+            "(SELECT b.id FROM BookEntity b WHERE b.accountId = :accountId AND b.syncGeneration != :generation AND NOT $DOWNLOADED_EXISTS)",
+    )
+    protected abstract suspend fun unfinishedDownloadsOfAbsentBooks(
+        accountId: Long,
+        generation: Long,
+    ): List<Long>
+
+    @Query(
+        "DELETE FROM BookEntity WHERE accountId = :accountId AND syncGeneration != :generation AND NOT EXISTS " +
+            "(SELECT 1 FROM DownloadEntity d WHERE d.accountId = BookEntity.accountId AND d.bookId = BookEntity.id AND d.state = 'DONE')",
+    )
+    protected abstract suspend fun deleteAbsentUndownloadedBooks(
         accountId: Long,
         generation: Long,
     )
+
+    @Query(
+        "DELETE FROM DownloadEntity WHERE accountId = :accountId AND bookId NOT IN (SELECT id FROM BookEntity WHERE accountId = :accountId)",
+    )
+    protected abstract suspend fun deleteOrphanDownloads(accountId: Long)
+
+    /**
+     * Drops books missing from sweep [generation], except downloaded ones (R26: they stay visible offline until deleted
+     * locally), and the unfinished download rows of the dropped books. Returns the books whose download rows were dropped,
+     * so the caller can stop their work and remove their files.
+     */
+    @Transaction
+    open suspend fun deleteBooksNotIn(
+        accountId: Long,
+        generation: Long,
+    ): List<Long> {
+        val dropped = unfinishedDownloadsOfAbsentBooks(accountId, generation)
+        deleteAbsentUndownloadedBooks(accountId, generation)
+        deleteOrphanDownloads(accountId)
+        return dropped
+    }
 
     @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND id = :id")
     abstract fun book(
