@@ -176,11 +176,11 @@ class OidcSpec :
             result shouldBe LoginResult.Ok(Tokens("a1", "r1", 900), AppUserInfo(canDownload = true))
             method shouldBe HttpMethod.Post
             callback!!.parameters.names() shouldBe setOf("code", "code_verifier", "redirect_uri", "nonce", "state")
-            callback!!.parameters["code"] shouldBe "c-1"
-            callback!!.parameters["code_verifier"] shouldBe "ver-1"
-            callback!!.parameters["redirect_uri"] shouldBe "grimmory://oauth2-callback"
-            callback!!.parameters["nonce"] shouldBe "n-1"
-            callback!!.parameters["state"] shouldBe "st-1"
+            callback.parameters["code"] shouldBe "c-1"
+            callback.parameters["code_verifier"] shouldBe "ver-1"
+            callback.parameters["redirect_uri"] shouldBe "grimmory://oauth2-callback"
+            callback.parameters["nonce"] shouldBe "n-1"
+            callback.parameters["state"] shouldBe "st-1"
             meAuth shouldBe "Bearer a1"
         }
 

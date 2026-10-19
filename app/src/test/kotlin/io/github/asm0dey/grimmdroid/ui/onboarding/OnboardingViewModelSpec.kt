@@ -69,7 +69,6 @@ private class Saved(
     val version: String,
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
 private class Fixture(
     var probeResult: ProbeResult = https,
     var loginResult: LoginResult = LoginResult.Ok(Tokens(jwt("pavel"), "r"), user),

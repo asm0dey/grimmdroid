@@ -21,6 +21,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import coil3.ImageLoader
+import coil3.annotation.ExperimentalCoilApi
 import coil3.network.NetworkFetcher
 import coil3.request.ErrorResult
 import coil3.request.ImageRequest
@@ -36,6 +37,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class CoverLoadFailureTest {
+    @OptIn(ExperimentalCoilApi::class)
     @Test
     fun persistentUnauthorizedIsAnErrorResultNotACrash() {
         val base = "https://grim.example"

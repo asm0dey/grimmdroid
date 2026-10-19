@@ -23,6 +23,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
 import coil3.ImageLoader
+import coil3.annotation.ExperimentalCoilApi
 import coil3.disk.DiskCache
 import coil3.network.NetworkFetcher
 import io.github.asm0dey.grimmdroid.account.AccountEntity
@@ -117,6 +118,7 @@ class AppContainer(
     val folderExport = FolderExport(app, settings)
     val afterDownload = AfterDownload(settings, folderExport)
 
+    @OptIn(ExperimentalCoilApi::class) // NetworkFetcher.Factory with a custom NetworkClient
     val imageLoader: ImageLoader =
         ImageLoader
             .Builder(app)

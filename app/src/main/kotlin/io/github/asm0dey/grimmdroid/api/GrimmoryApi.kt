@@ -59,7 +59,7 @@ class GrimmoryApi(
     suspend fun libraries(): List<LibraryDto> =
         try {
             client.get("api/v1/app/libraries").body()
-        } catch (e: ServerResponseException) {
+        } catch (_: ServerResponseException) {
             client.get("api/v1/libraries").body()
         }
 
