@@ -40,6 +40,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
@@ -145,7 +146,13 @@ fun ReaderChrome(
     locator: Locator?,
     toc: List<TocEntry>,
     jump: JumpOffer?,
+    bookmarked: Boolean,
+    bookmarks: List<BookmarkRow>,
     onBack: () -> Unit,
+    onToggleBookmark: () -> Unit,
+    onBookmarksOpened: () -> Unit,
+    onBookmark: (BookmarkRow) -> Unit,
+    onRemoveBookmark: (BookmarkRow) -> Unit,
     onSettings: () -> Unit,
     onSyncNow: () -> Unit,
     onMakeCurrent: () -> Unit,
@@ -155,9 +162,13 @@ fun ReaderChrome(
     onTocEntry: (Link) -> Unit,
 ) {
     var tocOpen by remember { mutableStateOf(false) }
+    var bookmarksOpen by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxSize()) {
         AnimatedVisibility(visible, Modifier.align(Alignment.TopCenter), slideInVertically { -it }, slideOutVertically { -it }) {
-            TopBar(title, onBack, { tocOpen = true }, onSettings, onSyncNow, onMakeCurrent)
+            TopBar(title, bookmarked, onBack, onToggleBookmark, {
+                bookmarksOpen = true
+                onBookmarksOpened()
+            }, { tocOpen = true }, onSettings, onSyncNow, onMakeCurrent)
         }
         Column(Modifier.align(Alignment.BottomCenter)) {
             if (jump != null) JumpBar(jump, onJump, onDismissJump)
@@ -165,6 +176,12 @@ fun ReaderChrome(
                 BottomBar(locator, onSeek)
             }
         }
+    }
+    if (bookmarksOpen) {
+        BookmarksSheet(bookmarks, {
+            bookmarksOpen = false
+            onBookmark(it)
+        }, onRemoveBookmark) { bookmarksOpen = false }
     }
     if (tocOpen) {
         ModalBottomSheet(onDismissRequest = { tocOpen = false }, properties = readerSheetProperties()) {
@@ -190,7 +207,10 @@ fun ReaderChrome(
 @Composable
 private fun TopBar(
     title: String,
+    bookmarked: Boolean,
     onBack: () -> Unit,
+    onToggleBookmark: () -> Unit,
+    onBookmarks: () -> Unit,
     onToc: () -> Unit,
     onSettings: () -> Unit,
     onSyncNow: () -> Unit,
@@ -203,6 +223,14 @@ private fun TopBar(
             IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), stringResource(R.string.back_action)) }
         },
         actions = {
+            // A checkbox to TalkBack: it announces checked / not checked.
+            IconToggleButton(bookmarked, { onToggleBookmark() }) {
+                Icon(
+                    painterResource(if (bookmarked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border),
+                    stringResource(if (bookmarked) R.string.remove_bookmark else R.string.add_bookmark),
+                )
+            }
+            IconButton(onClick = onBookmarks) { Icon(painterResource(R.drawable.ic_bookmarks), stringResource(R.string.bookmarks)) }
             IconButton(onClick = onToc) { Icon(painterResource(R.drawable.ic_view_list), stringResource(R.string.table_of_contents)) }
             IconButton(onClick = onSettings) { Icon(painterResource(R.drawable.ic_settings), stringResource(R.string.reader_settings)) }
             IconButton(onClick = { menu = true }) {

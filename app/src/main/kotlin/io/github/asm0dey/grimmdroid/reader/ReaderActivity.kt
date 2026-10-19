@@ -104,6 +104,7 @@ class ReaderActivity : FragmentActivity() {
                     file,
                     { container.appContext.openPublication(it, fontsDirs) },
                     container.positionSync,
+                    container.bookmarks,
                     container.db.readerDao(),
                     {
                         container.accounts
@@ -328,6 +329,7 @@ class ReaderActivity : FragmentActivity() {
     @androidx.compose.runtime.Composable
     private fun Chrome() {
         val jump by vm.jump.collectAsState()
+        val bookmarks by vm.bookmarkList.collectAsState(emptyList())
         val pub = publication
         val s = settings
         val palette = s.palette(systemDark)
@@ -339,7 +341,22 @@ class ReaderActivity : FragmentActivity() {
                 locator = locator,
                 toc = remember(pub) { pub?.tableOfContents?.flattenToc().orEmpty() },
                 jump = jump,
+                bookmarked =
+                    locator?.locations?.totalProgression?.let { page -> bookmarks.any { onPage(it.totalProgression, page) } } == true,
+                bookmarks = bookmarks,
                 onBack = ::finish,
+                onToggleBookmark = {
+                    lifecycleScope.launch {
+                        val nav = navigator ?: return@launch
+                        val page = locator ?: return@launch
+                        // The title's text, and the element the CFI names.
+                        val first = nav.firstVisibleElementLocator()
+                        vm.toggleBookmark(page.withSelector(first?.locations?.cssSelector), first?.text)
+                    }
+                },
+                onBookmarksOpened = vm::refreshBookmarks,
+                onBookmark = { row -> pub?.locatorFor(row)?.let { navigator?.go(it) } },
+                onRemoveBookmark = vm::removeBookmark,
                 onSettings = { settingsOpen = true },
                 onSyncNow = vm::syncNow,
                 onMakeCurrent = vm::makeCurrent,

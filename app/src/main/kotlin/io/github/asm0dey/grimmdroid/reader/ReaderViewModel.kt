@@ -74,6 +74,7 @@ class ReaderViewModel(
     file: File,
     open: suspend (File) -> Result<Publication>,
     private val sync: PositionSync,
+    private val bookmarks: Bookmarks,
     dao: ReaderDao,
     private val api: suspend () -> GrimmoryApi?,
     private val online: StateFlow<Boolean>,
@@ -130,6 +131,9 @@ class ReaderViewModel(
     /** Fires when "Make this position current" reached the server. */
     val madeCurrent: Flow<Unit> = madeCurrentEvents.receiveAsFlow()
 
+    /** This book's bookmarks, in reading order. */
+    val bookmarkList: Flow<List<BookmarkRow>> = bookmarks.observe(accountId, bookId)
+
     /** The position last recorded (reported by the navigator, or the target it is on); survives rotation. */
     var current: Locator? = null
         private set
@@ -156,6 +160,10 @@ class ReaderViewModel(
     private var flush: Job? = null
 
     init {
+        viewModelScope.launch {
+            online.first { it }
+            refreshBookmarks()
+        }
         viewModelScope.launch {
             val local = localRow.await()?.totalProgression
             online.first { it }
@@ -282,6 +290,34 @@ class ReaderViewModel(
         // Recorded now: Readium reports nothing when the target is on the page already shown.
         record(locator)
         navigation.trySend(locator)
+    }
+
+    /** Fetches the server's bookmarks for this book; offline, the local list stays as it is. */
+    fun refreshBookmarks() {
+        viewModelScope.launch {
+            if (!online.value) return@launch
+            val archive = archive.await() ?: return@launch
+            withContext(io) { bookmarks.refresh(accountId, bookId, archive) }
+        }
+    }
+
+    /** Removes the bookmarks on the page starting at [page], or bookmarks it when there are none; [text] titles it. */
+    fun toggleBookmark(
+        page: Locator,
+        text: Locator.Text?,
+    ) {
+        val at = page.locations.totalProgression ?: return
+        viewModelScope.launch {
+            val here = bookmarkList.first().filter { onPage(it.totalProgression, at) }
+            if (here.isNotEmpty()) return@launch here.forEach(::removeBookmark)
+            val cfi = archive.await()?.let { withContext(io) { it.cfiForLocator(page.toJSON().toString()) } }
+            // Outlives the screen: the request must not be cancelled half way.
+            pendingScope.launch { bookmarks.add(accountId, bookId, page, cfi, bookmarkTitle(page.title, text)) }
+        }
+    }
+
+    fun removeBookmark(row: BookmarkRow) {
+        pendingScope.launch { bookmarks.remove(row) }
     }
 
     fun dismissJump() {

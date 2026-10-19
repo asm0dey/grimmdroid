@@ -99,6 +99,7 @@ class ReaderViewModelSpec {
             epub,
             { app.openPublication(it, emptyList()) },
             sync,
+            Bookmarks(dao, { null }, { server.api }) { enqueued += it },
             dao,
             { server.api },
             online,
@@ -443,6 +444,22 @@ class ReaderViewModelSpec {
     }
 
     private fun row() = kotlinx.coroutines.runBlocking { dao.position(1, BOOK) }
+
+    private fun bookmarks() = kotlinx.coroutines.runBlocking { dao.bookmarks(1, BOOK).first() }
+
+    @Test
+    fun toggleBookmarkAddsThenRemovesTheBookmarkOnThisPage() =
+        runTest(dispatcher) {
+            val vm = vm(MutableStateFlow(false))
+            vm.toggleBookmark(locator(0.5).copy(title = "Two"), Locator.Text(highlight = "Alpha"))
+            until { bookmarks().size == 1 }
+            val row = bookmarks().single()
+            assertEquals("Two — Alpha", row.title)
+            assertEquals("epubcfi(/6/4!/4/2)", row.cfi)
+            assertEquals(0.5, row.totalProgression, 0.0)
+            vm.toggleBookmark(locator(0.5), null) // the same page again
+            until { bookmarks().isEmpty() }
+        }
 
     private fun locator(
         total: Double?,

@@ -41,12 +41,13 @@ import java.io.IOException
 /** Implemented by the Application, like `SyncHost`, so the worker reaches the app's single instances. */
 interface PositionUploadHost {
     val positionSync: PositionSync
+    val bookmarks: Bookmarks
     val readerDao: ReaderDao
     val accounts: AccountRepository
     val downloadRepository: DownloadRepository
 }
 
-/** Uploads one account's pending positions; HELD_BACK is done until the next reading session or a manual action. */
+/** Uploads one account's pending positions and bookmarks; HELD_BACK is done until the next reading session or a manual action. */
 class PositionUploadWorker(
     context: Context,
     params: WorkerParameters,
@@ -90,6 +91,7 @@ class PositionUploadWorker(
                 }
             if (result == UploadResult.FAILED) failed = true
         }
+        if (!host.bookmarks.flush(accountId)) failed = true
         return if (failed) Result.retry() else Result.success()
     }
 

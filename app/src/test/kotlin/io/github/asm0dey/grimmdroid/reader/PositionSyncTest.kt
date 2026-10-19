@@ -79,6 +79,7 @@ class PositionTestApp :
     override lateinit var readerDao: ReaderDao
     override lateinit var accounts: AccountRepository
     override lateinit var downloadRepository: DownloadRepository
+    override lateinit var bookmarks: Bookmarks
 }
 
 private object FixedTokens : TokenSource {
@@ -162,6 +163,7 @@ class PositionSyncTest {
                 scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
             ) { File(dir, "s.preferences_pb") }
         app.positionSync = sync
+        app.bookmarks = Bookmarks(dao, { db.accountDao().get(it) }, { server.api }) { enqueued += it }
         app.readerDao = dao
         app.accounts = AccountRepository(db.accountDao(), PlainCipher, SettingsStore(ds))
         app.downloadRepository = DownloadRepository(db.catalogDao(), { error("no downloads in this test") }, app.filesDir)
@@ -482,6 +484,17 @@ class PositionSyncTest {
             server.puts,
         )
         runBlocking { assertEquals(PendingUpload.NONE, dao.position(id, BOOK)!!.pending) }
+    }
+
+    @Test
+    fun workerFlushesPendingBookmarksAndRetriesTheirFailures() {
+        val id = account()
+        runBlocking {
+            dao.insertBookmark(BookmarkRow(0, id, BOOK, 5, "c", LOCATOR, "t", 0.4, BookmarkState.PENDING_DELETE))
+        }
+        server.failWith = IOException("offline")
+        assertEquals(ListenableWorker.Result.retry(), runWorker(id))
+        assertTrue(enqueued.isEmpty())
     }
 
     @Test

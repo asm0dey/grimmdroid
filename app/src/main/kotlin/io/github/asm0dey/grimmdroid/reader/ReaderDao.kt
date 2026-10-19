@@ -73,6 +73,9 @@ abstract class ReaderDao {
         bookId: Long,
     ): Flow<List<BookmarkRow>>
 
+    @Query("SELECT * FROM BookmarkRow WHERE localId = :localId")
+    abstract suspend fun bookmark(localId: Long): BookmarkRow?
+
     @Query("SELECT * FROM BookmarkRow WHERE state != 'SYNCED'")
     abstract suspend fun pendingBookmarks(): List<BookmarkRow>
 

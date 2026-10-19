@@ -160,6 +160,10 @@
     <string name="make_position_current">Make this position current</string>
     <string name="position_made_current">This position is now current</string>
     <string name="table_of_contents">Contents</string>
+    <string name="bookmarks">Bookmarks</string>
+    <string name="add_bookmark">Add bookmark</string>
+    <string name="remove_bookmark">Remove bookmark</string>
+    <string name="no_bookmarks">No bookmarks yet</string>
     <string name="reader_settings">Reading settings</string>
     <string name="reader_theme">Theme</string>
     <string name="reader_mode_system">System</string>

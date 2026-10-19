@@ -37,6 +37,7 @@ class GrimmdroidApp :
     override val downloadRepository get() = container.downloadRepository
     override val afterDownload get() = container.afterDownload
     override val positionSync get() = container.positionSync
+    override val bookmarks get() = container.bookmarks
     override val readerDao get() = container.db.readerDao()
     override val accounts get() = container.accounts
 
