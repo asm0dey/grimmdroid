@@ -100,8 +100,8 @@ private const val PROGRESS_PATH = "/api/v1/app/books/$BOOK/progress"
 private val jsonHeaders = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
 private const val LOCATOR = """{"href":"c2.xhtml","type":"application/xhtml+xml","locations":{"progression":0.0,"cssSelector":"#a"}}"""
 
-/** Grimmory's progress endpoint; any other request fails the test. */
-private class FakeServer {
+/** Grimmory's progress endpoint for book 7; any other request fails the test. */
+internal class FakeServer {
     var progressJson = "{}"
     var failWith: Exception? = null
     var onPut: suspend () -> Unit = {}

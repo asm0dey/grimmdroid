@@ -163,6 +163,11 @@ class PositionSync(
         java.util.concurrent.ConcurrentHashMap
             .newKeySet<Long>()
 
+    /** Leaves [accountId]'s pending positions to [PositionUploadWorker] (it waits for a network). */
+    fun uploadLater(accountId: Long) {
+        if (queued.add(accountId)) enqueue(accountId)
+    }
+
     /** Called by [PositionUploadWorker] as it starts: a failure from now on needs a new run. */
     fun followUpStarted(accountId: Long) {
         queued.remove(accountId)
@@ -229,7 +234,7 @@ class PositionSync(
         accountId: Long,
         enqueueOnFailure: Boolean,
     ): UploadResult {
-        if (enqueueOnFailure && queued.add(accountId)) enqueue(accountId)
+        if (enqueueOnFailure) uploadLater(accountId)
         return UploadResult.FAILED
     }
 }

@@ -153,4 +153,11 @@
     <string name="licences">Open-source licences</string>
     <string name="source_code">Source code</string>
     <string name="close_action">Close</string>
+    <string name="jump_further_ahead">Further ahead on another device: %1$s</string>
+    <string name="jump_action">Jump</string>
+    <string name="about_percent">about %1$d%%</string>
+    <string name="sync_position">Sync position</string>
+    <string name="make_position_current">Make this position current</string>
+    <string name="position_made_current">This position is now current</string>
+    <string name="table_of_contents">Contents</string>
 </resources>

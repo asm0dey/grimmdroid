@@ -35,6 +35,7 @@ internal fun xhtml(body: String) =
 internal fun tinyEpub(
     c1: String = xhtml("<p>One</p>"),
     c2: String = xhtml("""<p id="a">Alpha</p><p>Beta</p><div><p>Gamma</p></div>"""),
+    c2Linear: Boolean = false,
 ): File =
     File.createTempFile("tiny", ".epub").apply {
         deleteOnExit()
@@ -55,10 +56,14 @@ internal fun tinyEpub(
             )
             put(
                 "content.opf",
-                """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>""" +
+                """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">""" +
+                    // Readium rejects an OPF without metadata.
+                    """<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">""" +
+                    """<dc:title>Tiny</dc:title><dc:identifier>tiny</dc:identifier></metadata>""" +
+                    """<manifest>""" +
                     """<item id="i2" href="c2.xhtml" media-type="application/xhtml+xml"/>""" +
                     """<item id="i1" href="c1.xhtml" media-type="application/xhtml+xml"/>""" +
-                    """</manifest><spine><itemref idref="i1"/><itemref idref="i2" linear="no"/></spine></package>""",
+                    """</manifest><spine><itemref idref="i1"/><itemref idref="i2"${if (c2Linear) "" else " linear=\"no\""}/></spine></package>""",
             )
             put("c1.xhtml", c1)
             put("c2.xhtml", c2)
