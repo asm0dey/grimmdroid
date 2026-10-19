@@ -39,6 +39,8 @@ data class ShelfBooks(
 @Serializable
 data class Details(
     val bookId: Long,
+    /** The account the book belongs to; the details never follow an account switch. */
+    val accountId: Long,
 )
 
 @Serializable data object Search

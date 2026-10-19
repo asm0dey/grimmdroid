@@ -134,7 +134,7 @@ fun AppNav(container: AppContainer) {
             else -> null
         }
     val baseUrl = current?.baseUrl
-    val openBook: (Long) -> Unit = { nav.navigate(Details(it)) }
+    val openBook: (Long) -> Unit = { id -> current?.id?.let { nav.navigate(Details(id, it)) } }
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val defaultPassword = stringResource(R.string.default_password)
@@ -245,14 +245,14 @@ fun AppNav(container: AppContainer) {
                 LibraryContent(vm, baseUrl, syncStatus, openBook)
             }
             composable<Details> { entry ->
-                val vm: DetailsViewModel = viewModel(factory = DetailsViewModel.factory(container, entry.toRoute<Details>().bookId))
-                val accountId = current?.id
+                val route = entry.toRoute<Details>()
+                val vm: DetailsViewModel = viewModel(factory = DetailsViewModel.factory(container, route.accountId, route.bookId))
                 DetailsScreen(
                     vm,
                     baseUrl,
                     snackbar,
                     container.exporter,
-                    { uri -> accountId?.let { container.folderExport.setFolder(it, uri) } },
+                    { uri -> container.folderExport.setFolder(route.accountId, uri) },
                 ) { nav.popBackStack() }
             }
             composable<Search> {

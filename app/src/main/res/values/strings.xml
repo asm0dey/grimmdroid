@@ -92,6 +92,8 @@
     <string name="download_failed">Download failed. Try again</string>
     <string name="download_failed_network">Download failed. Check your connection and try again</string>
     <string name="delete_book_failed">Couldn\'t delete this book</string>
+    <string name="no_browser">No browser on this phone</string>
+    <string name="book_missing">This book isn\'t in your library anymore</string>
     <string name="choose_file">Choose a file</string>
     <string name="series_number">%1$s #%2$s</string>
     <string name="about">About</string>

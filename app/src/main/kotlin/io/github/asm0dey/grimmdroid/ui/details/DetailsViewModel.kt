@@ -33,16 +33,17 @@ import io.github.asm0dey.grimmdroid.download.DownloadWorker
 import io.github.asm0dey.grimmdroid.export.FolderResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -51,7 +52,9 @@ import java.io.File
 data class DetailsState(
     val account: AccountEntity? = null,
     val book: BookEntity? = null,
-    /** Fetched once per account while online; null offline or until it arrives. */
+    /** True once the catalogue has answered that the book isn't there (removed by a sync). */
+    val missing: Boolean = false,
+    /** Fetched while online and kept in memory; null offline or until it arrives. */
     val detail: BookDetailDto? = null,
     /** Null until the book is loaded. */
     val action: PrimaryAction? = null,
@@ -74,20 +77,23 @@ sealed interface DetailsEvent {
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailsViewModel(
+    accountId: Long,
     private val bookId: Long,
-    account: Flow<AccountEntity?>,
-    online: StateFlow<Boolean>,
+    accounts: Flow<List<AccountEntity>>,
+    private val online: StateFlow<Boolean>,
     book: (accountId: Long, bookId: Long) -> Flow<BookEntity?>,
     download: (accountId: Long, bookId: Long) -> Flow<DownloadEntity?>,
     work: (accountId: Long, bookId: Long) -> Flow<WorkInfo?>,
-    private val fetchDetail: suspend (AccountEntity, bookId: Long) -> BookDetailDto,
+    private val loadDetail: suspend (AccountEntity, bookId: Long) -> BookDetailDto,
     private val enqueue: (accountId: Long, bookId: Long, fileId: Long?, isPrimary: Boolean) -> Unit,
     private val cancelDownload: (accountId: Long, bookId: Long) -> Unit,
     private val delete: suspend (accountId: Long, bookId: Long) -> Unit,
     private val save: suspend (accountId: Long, file: File) -> FolderResult,
 ) : ViewModel() {
-    // In-memory cache keyed by the account it was fetched for.
-    private val detail = MutableStateFlow<Pair<Long, BookDetailDto>?>(null)
+    private val detail = MutableStateFlow<BookDetailDto?>(null)
+
+    // Pinned to the account the book was opened under: a switch must never re-query this book id in another account.
+    private val account = accounts.map { list -> list.firstOrNull { it.id == accountId } }.distinctUntilChanged()
 
     val state: StateFlow<DetailsState> =
         account
@@ -98,8 +104,11 @@ class DetailsViewModel(
                     combine(book(acc.id, bookId), download(acc.id, bookId), work(acc.id, bookId), online, detail) { b, row, info, on, det ->
                         val pending = info?.state?.isFinished == false
                         // The worker writes its row only once it starts; until then the enqueued work stands in for it.
+                        val stale =
+                            row == null || row.state == DownloadState.FAILED ||
+                                (row.state == DownloadState.DONE && !File(row.path).exists())
                         val effective =
-                            if (pending && (row == null || row.state == DownloadState.FAILED)) {
+                            if (pending && stale) {
                                 DownloadEntity(acc.id, bookId, 0, "", "", 0, DownloadState.QUEUED, -1f)
                             } else {
                                 row
@@ -107,7 +116,8 @@ class DetailsViewModel(
                         DetailsState(
                             account = acc,
                             book = b,
-                            detail = det?.takeIf { it.first == acc.id }?.second,
+                            missing = b == null,
+                            detail = det,
                             action =
                                 b?.let {
                                     primaryAction(
@@ -140,18 +150,7 @@ class DetailsViewModel(
     private var sawDownloading = false
 
     init {
-        viewModelScope.launch {
-            combine(account, online) { acc, on -> acc?.takeIf { on } }.distinctUntilChanged().collectLatest { acc ->
-                if (acc == null || detail.value?.first == acc.id) return@collectLatest
-                try {
-                    detail.value = acc.id to fetchDetail(acc, bookId)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Offline-first: the catalogue row is enough; the next reconnect retries.
-                }
-            }
-        }
+        viewModelScope.launch { combine(account, online) { acc, _ -> acc }.collect(::fetchDetail) }
         viewModelScope.launch {
             state.collect { s ->
                 if (!shareWhenDone) return@collect
@@ -171,6 +170,26 @@ class DetailsViewModel(
                 }
             }
         }
+    }
+
+    private var fetching: Job? = null
+
+    /** Fetches the detail unless it is already here or on its way; called on reconnect and whenever the screen shows again. */
+    fun refreshDetail() = fetchDetail(state.value.account)
+
+    private fun fetchDetail(acc: AccountEntity?) {
+        if (acc == null) return
+        if (!online.value || detail.value != null || fetching?.isActive == true) return
+        fetching =
+            viewModelScope.launch {
+                try {
+                    detail.value = loadDetail(acc, bookId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Offline-first: the catalogue row is enough; reconnecting or coming back to the screen retries.
+                }
+            }
     }
 
     /** [file] picks one of the detail's files; null downloads the primary file. [share] shares it once downloaded. */
@@ -227,14 +246,16 @@ class DetailsViewModel(
     companion object {
         fun factory(
             container: AppContainer,
+            accountId: Long,
             bookId: Long,
         ) = viewModelFactory {
             initializer {
                 val app = container.appContext
                 val repo = container.downloadRepository
                 DetailsViewModel(
+                    accountId,
                     bookId,
-                    container.accounts.current,
+                    container.accounts.accounts,
                     container.connectivity.online,
                     container.db.catalogDao()::book,
                     repo::observe,

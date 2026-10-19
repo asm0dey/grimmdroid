@@ -17,6 +17,7 @@
  */
 package io.github.asm0dey.grimmdroid.ui.details
 
+import android.content.ActivityNotFoundException
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -73,6 +74,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.api.BookDetailDto
 import io.github.asm0dey.grimmdroid.api.BookFileDto
@@ -127,39 +131,47 @@ fun DetailsScreen(
     val saveFailed = stringResource(R.string.save_failed)
     val deleteFailed = stringResource(R.string.delete_book_failed)
     val noApp = stringResource(R.string.no_app_to_open)
+    val noBrowser = stringResource(R.string.no_browser)
 
-    LaunchedEffect(vm) {
-        vm.events.collect { event ->
-            when (event) {
-                is DetailsEvent.Share -> {
-                    exporter.share(event.file, event.title)
-                }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(vm, lifecycle) {
+        // Only while started: an event (a pending share) waits in the channel until the user is back, since a stopped app
+        // can't start the share sheet.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            vm.refreshDetail()
+            vm.events.collect { event ->
+                when (event) {
+                    is DetailsEvent.Share -> {
+                        exporter.share(event.file, event.title)
+                    }
 
-                DetailsEvent.DeleteFailed -> {
-                    snackbar.showSnackbar(deleteFailed)
-                }
+                    DetailsEvent.DeleteFailed -> {
+                        snackbar.showSnackbar(deleteFailed)
+                    }
 
-                is DetailsEvent.Saved -> {
-                    when (val outcome = event.result.getOrNull()) {
-                        FolderResult.NeedsFolder -> {
-                            saveAfterPick = true
-                            folderPicker.launch(null)
-                        }
-
-                        is FolderResult.Saved -> {
-                            val shown = snackbar.showSnackbar(savedTo.format(outcome.folderName), change, duration = SnackbarDuration.Long)
-                            if (shown == SnackbarResult.ActionPerformed) {
-                                saveAfterPick = false
+                    is DetailsEvent.Saved -> {
+                        when (val outcome = event.result.getOrNull()) {
+                            FolderResult.NeedsFolder -> {
+                                saveAfterPick = true
                                 folderPicker.launch(null)
                             }
-                        }
 
-                        FolderResult.FolderLost -> {
-                            snackbar.showSnackbar(folderLost)
-                        }
+                            is FolderResult.Saved -> {
+                                val message = savedTo.format(outcome.folderName)
+                                val shown = snackbar.showSnackbar(message, change, duration = SnackbarDuration.Long)
+                                if (shown == SnackbarResult.ActionPerformed) {
+                                    saveAfterPick = false
+                                    folderPicker.launch(null)
+                                }
+                            }
 
-                        null -> {
-                            snackbar.showSnackbar(saveFailed)
+                            FolderResult.FolderLost -> {
+                                snackbar.showSnackbar(folderLost)
+                            }
+
+                            null -> {
+                                snackbar.showSnackbar(saveFailed)
+                            }
                         }
                     }
                 }
@@ -206,12 +218,19 @@ fun DetailsScreen(
                     if (baseUrl != null && book != null) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.open_in_web)) }, onClick = {
                             menuOpen = false
-                            CustomTabsIntent.Builder().build().launchUrl(context, webUiBookUrl(baseUrl, book.id).toUri())
+                            try {
+                                CustomTabsIntent.Builder().build().launchUrl(context, webUiBookUrl(baseUrl, book.id).toUri())
+                            } catch (_: ActivityNotFoundException) {
+                                scope.launch { snackbar.showSnackbar(noBrowser) }
+                            }
                         })
                     }
                 }
             },
         )
+        if (s.missing) {
+            Text(stringResource(R.string.book_missing), Modifier.padding(16.dp), style = MaterialTheme.typography.bodyLarge)
+        }
         if (book == null || action == null) return@Column
         Header(book, s.detail, action is PrimaryAction.Downloaded, baseUrl)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

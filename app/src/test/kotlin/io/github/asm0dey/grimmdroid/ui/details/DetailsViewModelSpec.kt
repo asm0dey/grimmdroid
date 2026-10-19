@@ -17,16 +17,20 @@
  */
 package io.github.asm0dey.grimmdroid.ui.details
 
+import androidx.work.WorkInfo
+import androidx.work.workDataOf
 import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.api.BookDetailDto
 import io.github.asm0dey.grimmdroid.catalog.BookEntity
 import io.github.asm0dey.grimmdroid.catalog.DownloadEntity
 import io.github.asm0dey.grimmdroid.catalog.DownloadState
+import io.github.asm0dey.grimmdroid.download.DownloadWorker
 import io.github.asm0dey.grimmdroid.export.FolderResult
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
@@ -36,6 +40,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import java.io.File
+import java.io.IOException
+import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DetailsViewModelSpec :
@@ -55,16 +61,25 @@ class DetailsViewModelSpec :
             enqueued: MutableList<Long?> = mutableListOf(),
             fetches: MutableList<Long> = mutableListOf(),
             online: MutableStateFlow<Boolean> = MutableStateFlow(true),
+            work: Flow<WorkInfo?> = flowOf(null),
+            accounts: Flow<List<AccountEntity>> = flowOf(listOf(account)),
+            queried: MutableList<Long> = mutableListOf(),
+            books: Flow<BookEntity?> = flowOf(book),
+            load: suspend (Long) -> BookDetailDto = { BookDetailDto(it) },
         ) = DetailsViewModel(
+            1,
             7,
-            flowOf(account),
+            accounts,
             online,
-            { _, _ -> flowOf(book) },
+            { a, _ ->
+                queried += a
+                books
+            },
             { _, _ -> rows },
-            { _, _ -> flowOf(null) },
+            { _, _ -> work },
             { _, id ->
                 fetches += id
-                BookDetailDto(id)
+                load(id)
             },
             { _, _, fileId, _ -> enqueued += fileId },
             { _, _ -> },
@@ -115,6 +130,90 @@ class DetailsViewModelSpec :
                 online.value = true
                 fetches shouldBe listOf(7L)
                 vm.state.value.detail shouldBe BookDetailDto(7)
+            }
+        }
+
+        test("a share stays queued while nobody collects, e.g. the app is in the background") {
+            runTest(dispatcher) {
+                val rows = MutableStateFlow<DownloadEntity?>(null)
+                val vm = vm(rows)
+                vm.download(null, share = true)
+                rows.value = row(DownloadState.RUNNING)
+                rows.value = row(DownloadState.DONE)
+                val events = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { vm.events.toList(events) }
+                events shouldBe listOf(DetailsEvent.Share(file, "Moby Dick"))
+            }
+        }
+
+        test("enqueued work stands in for a missing, failed or vanished-file row") {
+            runTest(dispatcher) {
+                val enqueued = WorkInfo(UUID.randomUUID(), WorkInfo.State.ENQUEUED, emptySet())
+                val gone = row(DownloadState.DONE).copy(path = File(file.parentFile, "gone-${System.nanoTime()}").path)
+                for (r in listOf(null, row(DownloadState.FAILED), gone)) {
+                    val vm = vm(MutableStateFlow(r), work = flowOf(enqueued))
+                    vm.state.value.action shouldBe PrimaryAction.Downloading(-1f)
+                    vm.state.value.failure shouldBe null
+                }
+                // Without pending work the vanished file just offers Download again.
+                vm(MutableStateFlow(gone)).state.value.action shouldBe PrimaryAction.Download
+            }
+        }
+
+        test("a failed row reports the work's error kind") {
+            runTest(dispatcher) {
+                val failed =
+                    WorkInfo(
+                        UUID.randomUUID(),
+                        WorkInfo.State.FAILED,
+                        emptySet(),
+                        workDataOf(DownloadWorker.KEY_ERROR to DownloadWorker.ERROR_NETWORK),
+                    )
+                val vm = vm(MutableStateFlow(row(DownloadState.FAILED)), work = flowOf(failed))
+                vm.state.value.failure shouldBe DownloadWorker.ERROR_NETWORK
+                vm.state.value.action shouldBe PrimaryAction.Download
+            }
+        }
+
+        test("a failed detail fetch is retried when the screen shows again") {
+            runTest(dispatcher) {
+                var fail = true
+                val fetches = mutableListOf<Long>()
+                val vm =
+                    vm(MutableStateFlow(null), fetches = fetches, load = {
+                        if (fail) throw IOException("boom")
+                        BookDetailDto(it)
+                    })
+                vm.state.value.detail shouldBe null
+                fail = false
+                vm.refreshDetail()
+                vm.refreshDetail()
+                fetches shouldBe listOf(7L, 7L)
+                vm.state.value.detail shouldBe BookDetailDto(7)
+            }
+        }
+
+        test("stays on the account it was opened under") {
+            runTest(dispatcher) {
+                val other = account.copy(id = 2, username = "v")
+                val accounts = MutableStateFlow(listOf(account, other))
+                val queried = mutableListOf<Long>()
+                val vm = vm(MutableStateFlow(null), accounts = accounts, queried = queried)
+                accounts.value = listOf(other, account.copy(lastSyncedAt = 5))
+                queried.toSet() shouldBe setOf(1L)
+                vm.state.value.account
+                    ?.id shouldBe 1L
+                accounts.value = listOf(other)
+                vm.state.value.account shouldBe null
+                queried.toSet() shouldBe setOf(1L)
+            }
+        }
+
+        test("a book gone from the catalogue is reported as missing") {
+            runTest(dispatcher) {
+                val vm = vm(MutableStateFlow(null), books = flowOf(null))
+                vm.state.value.missing shouldBe true
+                vm.state.value.action shouldBe null
             }
         }
     })
