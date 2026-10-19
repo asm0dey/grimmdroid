@@ -29,11 +29,16 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.net.toUri
@@ -71,8 +76,10 @@ import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.html.cssSelector
 import org.readium.r2.shared.publication.services.locateProgression
+import org.readium.r2.shared.publication.services.positionsByReadingOrder
 import org.readium.r2.shared.util.AbsoluteUrl
 import java.io.File
+import kotlin.math.roundToInt
 
 class ReaderActivity : FragmentActivity() {
     private val vm: ReaderViewModel by viewModels {
@@ -193,7 +200,9 @@ class ReaderActivity : FragmentActivity() {
                     insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top -
                         insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top
                 }
-            v.updatePadding(top = top.coerceAtLeast(0))
+            // Room for the reader's own status bar below the text.
+            val bottom = if (settings.statusBarShown) (STATUS_BAR_HEIGHT.value * resources.displayMetrics.density).roundToInt() else 0
+            v.updatePadding(top = top.coerceAtLeast(0), bottom = bottom)
             insets
         }
         setContentView(
@@ -261,6 +270,7 @@ class ReaderActivity : FragmentActivity() {
                 launch {
                     navigator.currentLocator.collect { current ->
                         locator = current
+                        current.locations.position?.let(vm.pace::onPosition)
                         vm.onLocatorChanged(current.withSelector(navigator.firstVisibleElementLocator()?.locations?.cssSelector))
                     }
                 }
@@ -319,7 +329,9 @@ class ReaderActivity : FragmentActivity() {
         val jump by vm.jump.collectAsState()
         val pub = publication
         val s = settings
-        ReaderColors(s.palette(systemDark), s.isDark(systemDark)) {
+        val palette = s.palette(systemDark)
+        ReaderColors(palette, s.isDark(systemDark)) {
+            if (pub != null && s.statusBarShown) StatusLine(pub, s.statusItems, palette)
             ReaderChrome(
                 visible = chromeVisible,
                 title = pub?.metadata?.title.orEmpty(),
@@ -352,6 +364,30 @@ class ReaderActivity : FragmentActivity() {
             }
             footnote?.let { FootnotePopup(it) { footnote = null } }
         }
+    }
+
+    /** The status bar at the bottom edge, under the chrome's bottom bar while that shows. */
+    @androidx.compose.runtime.Composable
+    private fun StatusLine(
+        pub: Publication,
+        items: List<StatusItem>,
+        palette: Palette,
+    ) {
+        val sizes by produceState(emptyList<Int>(), pub) { value = pub.positionsByReadingOrder().map { it.size } }
+        val now = if (StatusItem.CLOCK in items) minuteClock() else 0L
+        val battery = if (StatusItem.BATTERY in items) batteryPercent() else null
+        val at = locator
+        val inputs =
+            statusInputs(
+                totalProgression = at?.locations?.totalProgression ?: 0.0,
+                position = at?.locations?.position,
+                resourceSizes = sizes,
+                chapterTitle = at?.title,
+                nowMillis = now,
+                batteryPercent = battery,
+                msPerPosition = vm.pace.msPerPosition, // changes only with the locator, which recomposes this
+            )
+        Box(Modifier.fillMaxSize()) { StatusBar(items, inputs, palette, Modifier.align(Alignment.BottomCenter)) }
     }
 
     override fun onStop() {

@@ -114,6 +114,9 @@ class ReaderViewModel(
                 }?.also { arriving = it }
         }
 
+    /** Reading speed this session, for the status bar's time left; kept across rotation. */
+    val pace = ReadingPace()
+
     private val _jump = MutableStateFlow<JumpOffer?>(null)
     val jump: StateFlow<JumpOffer?> = _jump.asStateFlow()
 

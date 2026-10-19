@@ -35,6 +35,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -146,7 +147,10 @@ fun ReaderSettingsSheet(
             }
 
             Heading(R.string.reader_status_bar)
-            // Task 10 adds the reader status bar's own items here.
+            SwitchRow(stringResource(R.string.reader_show_status_bar), settings.statusBarVisible) { on ->
+                onUpdate { it.copy(statusBarVisible = on) }
+            }
+            if (settings.statusBarVisible) StatusItems(settings.statusItems) { items -> onUpdate { it.copy(statusItems = items) } }
             SwitchRow(stringResource(R.string.reader_keep_system_status_bar), settings.keepSystemStatusBar) { on ->
                 onUpdate { it.copy(keepSystemStatusBar = on) }
             }
@@ -249,6 +253,62 @@ private fun SwitchRow(
         Switch(checked, onCheckedChange = null)
     }
 }
+
+/** Shown items first, in their order, with buttons to move them; then the rest. */
+@Composable
+private fun StatusItems(
+    shown: List<StatusItem>,
+    onChange: (List<StatusItem>) -> Unit,
+) {
+    (shown + StatusItem.entries.filterNot { it in shown }).forEach { item ->
+        val on = item in shown
+        val label = stringResource(item.label())
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .toggleable(on, role = Role.Checkbox) { onChange(if (it) shown + item else shown - item) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(on, onCheckedChange = null)
+                Text(label, Modifier.padding(start = 8.dp))
+            }
+            if (on) {
+                val i = shown.indexOf(item)
+                MoveButton("↑", stringResource(R.string.reader_move_up, label), i > 0) { onChange(shown.swap(i, i - 1)) }
+                MoveButton("↓", stringResource(R.string.reader_move_down, label), i < shown.lastIndex) { onChange(shown.swap(i, i + 1)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoveButton(
+    glyph: String,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.semantics { contentDescription = description }) { Text(glyph) }
+}
+
+private fun <T> List<T>.swap(
+    i: Int,
+    j: Int,
+): List<T> = toMutableList().apply { this[i] = this[j].also { this[j] = this[i] } }
+
+private fun StatusItem.label(): Int =
+    when (this) {
+        StatusItem.PROGRESS_BAR -> R.string.reader_status_progress_bar
+        StatusItem.PERCENT -> R.string.reader_status_percent
+        StatusItem.PAGE_OF -> R.string.reader_status_page_of
+        StatusItem.PAGES_LEFT_IN_CHAPTER -> R.string.reader_status_pages_left_in_chapter
+        StatusItem.CHAPTER_TITLE -> R.string.reader_status_chapter_title
+        StatusItem.CLOCK -> R.string.reader_status_clock
+        StatusItem.BATTERY -> R.string.reader_status_battery
+        StatusItem.TIME_LEFT_CHAPTER -> R.string.reader_status_time_left_chapter
+        StatusItem.TIME_LEFT_BOOK -> R.string.reader_status_time_left_book
+    }
 
 private fun TextAlign?.label(): Int =
     when (this) {
