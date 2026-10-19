@@ -22,5 +22,6 @@
     <string name="signed_out">Signed out</string>
     <string name="offline">Offline</string>
     <string name="signed_out_banner">Signed out of %1$s · Sign in</string>
+    <string name="unknown_version">unknown</string>
     <string name="unsupported_banner">This server version isn\'t supported: %1$s. Syncing and downloads won\'t work.</string>
 </resources>

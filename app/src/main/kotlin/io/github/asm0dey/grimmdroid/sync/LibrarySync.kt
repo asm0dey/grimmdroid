@@ -26,6 +26,8 @@ import io.github.asm0dey.grimmdroid.catalog.BookEntity
 import io.github.asm0dey.grimmdroid.catalog.CatalogDao
 import io.github.asm0dey.grimmdroid.catalog.LibraryEntity
 import io.github.asm0dey.grimmdroid.catalog.ShelfEntity
+import io.ktor.client.plugins.ClientRequestException
+import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,10 +65,13 @@ class LibrarySync(
             val account = accounts.account(accountId) ?: return@withLock SyncState.Idle
             if (account.signedOut) return@withLock SyncState.SignedOut.also { emit(accountId, it) }
             emit(accountId, SyncState.Running(0, 0))
+            val api = apiFor(account)
             val result =
                 try {
-                    sweep(account, apiFor(account))
+                    sweep(account, api)
                     SyncState.Idle
+                } catch (e: AppApiMissing) {
+                    SyncState.Unsupported(versionOrNull(api))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: SessionExpiredException) {
@@ -84,7 +89,14 @@ class LibrarySync(
     ) {
         val id = account.id
         val generation = clock()
-        accounts.updatePermissions(id, api.me())
+        val me =
+            try {
+                api.me()
+            } catch (e: ClientRequestException) {
+                // Only this first call decides support; a 404 later in the sweep (e.g. a shelf just deleted) is an ordinary failure.
+                if (e.response.status == HttpStatusCode.NotFound) throw AppApiMissing() else throw e
+            }
+        accounts.updatePermissions(id, me)
 
         dao.replaceLibraries(id, api.libraries().map { LibraryEntity(id, it.id, it.name, it.bookCount.toInt()) })
         val shelves = api.shelves().map { it to api.bookIds(shelfId = it.id) }
@@ -110,6 +122,17 @@ class LibrarySync(
         accounts.setLastSyncedAt(id, clock())
     }
 }
+
+private class AppApiMissing : Exception()
+
+private suspend fun versionOrNull(api: GrimmoryApi): String? =
+    try {
+        api.version().current
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
 
 internal fun BookSummaryDto.toEntity(
     accountId: Long,

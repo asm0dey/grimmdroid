@@ -60,6 +60,12 @@ class GlobalBannersTest {
     }
 
     @Test
+    fun unsupportedShowsServerVersion() {
+        compose.setContent { GlobalBanners(none.copy(unsupportedVersion = "v9.9.9"), onSignIn = {}) }
+        compose.onNodeWithText("v9.9.9", substring = true).assertExists()
+    }
+
+    @Test
     fun nothingShownWhenAllClear() {
         compose.setContent { GlobalBanners(none, onSignIn = {}) }
         compose.onNodeWithText("Offline").assertDoesNotExist()

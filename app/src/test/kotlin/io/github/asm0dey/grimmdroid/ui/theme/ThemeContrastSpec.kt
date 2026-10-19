@@ -43,6 +43,9 @@ class ThemeContrastSpec :
                 contrast(s.onSurface, s.surface) shouldBeGreaterThanOrEqual 4.5
                 contrast(s.onSurfaceVariant, s.surface) shouldBeGreaterThanOrEqual 4.5
                 contrast(s.error, s.surfaceContainerLow) shouldBeGreaterThanOrEqual 4.5
+                contrast(s.onErrorContainer, s.errorContainer) shouldBeGreaterThanOrEqual 4.5
+                contrast(s.onSecondaryContainer, s.secondaryContainer) shouldBeGreaterThanOrEqual 4.5
+                contrast(s.onTertiaryContainer, s.tertiaryContainer) shouldBeGreaterThanOrEqual 4.5
             }
         }
     })

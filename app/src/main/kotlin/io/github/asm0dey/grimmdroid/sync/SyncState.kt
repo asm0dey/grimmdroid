@@ -30,4 +30,9 @@ sealed interface SyncState {
     ) : SyncState
 
     data object SignedOut : SyncState
+
+    /** The server has no mobile app API (`me()` answered 404); [serverVersion] is read live, null if unavailable. */
+    data class Unsupported(
+        val serverVersion: String?,
+    ) : SyncState
 }

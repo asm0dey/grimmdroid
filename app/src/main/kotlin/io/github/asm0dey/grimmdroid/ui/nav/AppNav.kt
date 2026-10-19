@@ -53,6 +53,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -60,8 +61,6 @@ import androidx.navigation.compose.rememberNavController
 import io.github.asm0dey.grimmdroid.AppContainer
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.sync.SyncState
-import io.ktor.client.plugins.ClientRequestException
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.launch
 
 private enum class Tab(
@@ -83,10 +82,6 @@ private fun NavController.openTab(tab: Tab) =
         restoreState = true
     }
 
-// A 404 from the app API means the server lost the mobile API (e.g. downgraded).
-private fun SyncState.isUnsupported() =
-    this is SyncState.Failed && (cause as? ClientRequestException)?.response?.status == HttpStatusCode.NotFound
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppNav(container: AppContainer) {
@@ -106,6 +101,7 @@ fun AppNav(container: AppContainer) {
     var sheetOpen by rememberSaveable { mutableStateOf(false) }
 
     RequestNotificationsOnce(inShell)
+    ResetTabsOnAccountSwitch(nav, current?.id)
 
     Scaffold(
         topBar = {
@@ -126,7 +122,8 @@ fun AppNav(container: AppContainer) {
                             offline = !online,
                             syncing = sync as? SyncState.Running,
                             signedOutServer = account?.takeIf { it.signedOut }?.let { serverName(it.baseUrl) },
-                            unsupportedVersion = account?.takeIf { sync?.isUnsupported() == true }?.serverVersion,
+                            unsupportedVersion =
+                                (sync as? SyncState.Unsupported)?.let { it.serverVersion ?: stringResource(R.string.unknown_version) },
                         ),
                         onSignIn = { nav.navigate(Onboarding) },
                     )
@@ -180,6 +177,26 @@ fun AppNav(container: AppContainer) {
             },
             onDismiss = { sheetOpen = false },
         )
+    }
+}
+
+/** Account-scoped destinations (details, shelves) must not survive a switch, so every tab starts over at its root. */
+@Composable
+private fun ResetTabsOnAccountSwitch(
+    nav: NavController,
+    accountId: Long?,
+) {
+    var shownId by rememberSaveable { mutableStateOf<Long?>(null) }
+    LaunchedEffect(accountId) {
+        if (accountId == null) return@LaunchedEffect
+        if (shownId != null && shownId != accountId) {
+            Tab.entries.forEach { nav.clearBackStack(it.route) }
+            nav.navigate(Home) {
+                popUpTo(nav.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+            }
+        }
+        shownId = accountId
     }
 }
 

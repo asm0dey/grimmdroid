@@ -80,6 +80,9 @@ private class FakeServer {
     var shelves = mapOf(10L to listOf(1L, 2L))
     var magicShelves = mapOf(10L to listOf(3L))
     var maxSize = 0
+    var meMissing = false
+    var shelfIdsMissing = false
+    var version: String? = "v9.9.9"
 
     val engine =
         MockEngine { req ->
@@ -97,7 +100,13 @@ private class FakeServer {
                 else -> {
                     val body =
                         when (req.url.encodedPath) {
+                            "/api/v1/version" -> {
+                                val v = version ?: return@MockEngine respondError(HttpStatusCode.InternalServerError)
+                                """{"current":"$v"}"""
+                            }
+
                             "/api/v1/app/users/me" -> {
+                                if (meMissing) return@MockEngine respondError(HttpStatusCode.NotFound)
                                 """{"isAdmin":false,"canDownload":$canDownload}"""
                             }
 
@@ -114,6 +123,7 @@ private class FakeServer {
                             }
 
                             "/api/v1/app/books/ids" -> {
+                                if (shelfIdsMissing) return@MockEngine respondError(HttpStatusCode.NotFound)
                                 if (failShelfIds) return@MockEngine respondError(HttpStatusCode.InternalServerError)
                                 val ids = p["shelfId"]?.let { shelves[it.toLong()] } ?: magicShelves.getValue(p["magicShelfId"]!!.toLong())
                                 ids.joinToString(",", "[", "]")
@@ -279,6 +289,30 @@ class LibrarySyncTest {
             assertEquals(SyncState.SignedOut, state())
             assertTrue(account().signedOut)
             assertEquals(3, books().size)
+        }
+
+    @Test
+    fun meNotFoundIsUnsupportedWithLiveVersion() =
+        runBlocking {
+            server.meMissing = true
+            assertEquals(SyncState.Unsupported("v9.9.9"), sync.sync(accountId))
+            assertEquals(SyncState.Unsupported("v9.9.9"), state())
+        }
+
+    @Test
+    fun meNotFoundWithoutVersionIsUnsupportedNull() =
+        runBlocking {
+            server.meMissing = true
+            server.version = null
+            assertEquals(SyncState.Unsupported(null), sync.sync(accountId))
+        }
+
+    @Test
+    fun notFoundLaterInSweepIsFailedNotUnsupported() =
+        runBlocking {
+            server.titles = (1L..3L).associateWith { "T" }
+            server.shelfIdsMissing = true
+            assertTrue(sync.sync(accountId) is SyncState.Failed)
         }
 
     @Test

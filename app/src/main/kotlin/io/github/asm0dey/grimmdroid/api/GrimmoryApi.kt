@@ -26,6 +26,8 @@ import io.ktor.client.request.parameter
 class GrimmoryApi(
     private val client: HttpClient,
 ) {
+    suspend fun version(): VersionInfo = client.get("api/v1/version").body()
+
     suspend fun me(): AppUserInfo = client.get("api/v1/app/users/me").body()
 
     suspend fun books(

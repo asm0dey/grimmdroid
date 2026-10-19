@@ -49,6 +49,7 @@ class SyncWorker(
         val accountId = inputData.getLong(KEY_ACCOUNT_ID, -1)
         if (accountId < 0) return Result.failure()
         val state = (applicationContext as SyncHost).librarySync.sync(accountId)
+        // Unsupported and SignedOut are terminal: retrying can't help until the user acts.
         return if (state is SyncState.Failed) Result.retry() else Result.success()
     }
 
