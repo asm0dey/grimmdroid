@@ -135,7 +135,14 @@ class AccountRepositoryTest {
                     .single()
                     .signedOut,
             )
-            assertEquals(tokens, src.current())
+            // The revoked tokens are dropped, not kept for the next request to try again.
+            assertNull(src.current())
+            assertNull(
+                repo.accounts
+                    .first()
+                    .single()
+                    .encryptedTokens,
+            )
             src.save(Tokens("n", "m"))
             assertFalse(
                 repo.accounts
@@ -160,12 +167,9 @@ class AccountRepositoryTest {
                     SettingsStore(PreferenceDataStoreFactory.create(scope = scope) { File(dir, "other.preferences_pb") }),
                 )
             assertNull(broken.tokenSource(id).current())
-            assertTrue(
-                repo.accounts
-                    .first()
-                    .single()
-                    .signedOut,
-            )
+            val account = repo.accounts.first().single()
+            assertTrue(account.signedOut)
+            assertNull(account.encryptedTokens)
         }
 
     @Test

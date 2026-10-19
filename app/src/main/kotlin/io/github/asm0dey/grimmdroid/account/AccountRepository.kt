@@ -132,7 +132,7 @@ class AccountRepository(
 
             // Blob restored onto another device (or key lost): force a fresh sign-in instead of failing forever.
             private suspend fun unreadable(): Tokens? {
-                dao.markSignedOut(id)
+                dao.setTokens(id, null, signedOut = true)
                 return null
             }
 
@@ -142,11 +142,11 @@ class AccountRepository(
                     tokenCache[id] = t
                 }
 
-            // Idempotent: concurrent in-flight 401s all land on the same UPDATE.
+            // Idempotent: concurrent in-flight 401s all land on the same UPDATE. The revoked tokens go too, so current() is null.
             override suspend fun expired() =
                 tokenLock.withLock {
                     tokenCache.remove(id)
-                    dao.markSignedOut(id)
+                    dao.setTokens(id, null, signedOut = true)
                 }
         }
 }

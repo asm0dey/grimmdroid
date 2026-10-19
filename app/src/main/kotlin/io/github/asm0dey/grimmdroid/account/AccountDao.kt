@@ -51,9 +51,6 @@ abstract class AccountDao {
         signedOut: Boolean,
     )
 
-    @Query("UPDATE AccountEntity SET signedOut = 1 WHERE id = :id")
-    abstract suspend fun markSignedOut(id: Long)
-
     @Query("UPDATE AccountEntity SET canDownload = :canDownload, isAdmin = :isAdmin WHERE id = :id")
     abstract suspend fun setPermissions(
         id: Long,
