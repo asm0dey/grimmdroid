@@ -63,12 +63,13 @@ import io.github.asm0dey.grimmdroid.ui.nav.serverName
 @Composable
 fun OnboardingRoute(
     container: AppContainer,
+    server: String?,
     onDone: (defaultPassword: Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val vm: OnboardingViewModel = viewModel(factory = OnboardingViewModel.factory(container, context))
+    val vm: OnboardingViewModel = viewModel(factory = OnboardingViewModel.factory(container, context, server))
     val state by vm.state.collectAsState()
-    var address by rememberSaveable { mutableStateOf("https://") }
+    var address by rememberSaveable { mutableStateOf(vm.initialAddress) }
     var lastSignIn by remember { mutableStateOf<OnboardingState.SignIn?>(null) }
 
     LaunchedEffect(vm) {

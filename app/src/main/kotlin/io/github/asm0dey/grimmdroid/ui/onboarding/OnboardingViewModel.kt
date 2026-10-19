@@ -86,7 +86,12 @@ class OnboardingViewModel(
     private val redirects: MutableSharedFlow<Url>,
     private val saveAccount: suspend (baseUrl: String, username: String, version: String, AppUserInfo, Tokens) -> Long,
     private val scheduleSync: (accountId: Long) -> Unit,
+    /** A signed-out account's base URL: re-signing in there updates that account instead of adding one. */
+    server: String? = null,
 ) : ViewModel() {
+    /** What the server field starts with. */
+    val initialAddress: String = server ?: "https://"
+
     private val _state = MutableStateFlow<OnboardingState>(OnboardingState.EnterServer())
     val state: StateFlow<OnboardingState> = _state.asStateFlow()
 
@@ -263,6 +268,7 @@ class OnboardingViewModel(
         fun factory(
             container: AppContainer,
             context: Context,
+            server: String?,
         ) = viewModelFactory {
             initializer {
                 val app = context.applicationContext
@@ -275,6 +281,7 @@ class OnboardingViewModel(
                     redirects = OidcRedirects.incoming,
                     saveAccount = container.accounts::addOrUpdate,
                     scheduleSync = { scheduleSync(app, it, now = true) },
+                    server = server,
                 )
             }
         }

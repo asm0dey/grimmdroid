@@ -124,7 +124,7 @@ fun AppNav(container: AppContainer) {
     val syncStates by container.librarySync.state.collectAsState()
     val nav = rememberNavController()
     val scope = rememberCoroutineScope()
-    val start: Any = remember { if (loaded.isEmpty()) Onboarding else Home }
+    val start: Any = remember { if (loaded.isEmpty()) Onboarding() else Home }
 
     val backStackEntry = nav.currentBackStackEntryAsState().value
     val destination = backStackEntry?.destination
@@ -156,7 +156,7 @@ fun AppNav(container: AppContainer) {
     // Removing the last account leaves nothing to show: start over at Onboarding (the start destination is frozen).
     LaunchedEffect(loaded.isEmpty()) {
         if (loaded.isEmpty() && nav.currentDestination?.hasRoute(Onboarding::class) == false) {
-            nav.navigate(Onboarding) { popUpTo(nav.graph.id) { inclusive = true } }
+            nav.navigate(Onboarding()) { popUpTo(nav.graph.id) { inclusive = true } }
         }
     }
     RequestNotificationsOnce(inShell)
@@ -167,7 +167,7 @@ fun AppNav(container: AppContainer) {
             if (container.pendingOidc.load() != null &&
                 nav.currentDestination?.hasRoute(Onboarding::class) != true
             ) {
-                nav.navigate(Onboarding)
+                nav.navigate(Onboarding())
             }
         }
     }
@@ -204,7 +204,7 @@ fun AppNav(container: AppContainer) {
                             unsupportedVersion =
                                 (sync as? SyncState.Unsupported)?.let { it.serverVersion ?: stringResource(R.string.unknown_version) },
                         ),
-                        onSignIn = { nav.navigate(Onboarding) },
+                        onSignIn = { nav.navigate(Onboarding(account?.baseUrl)) },
                     )
                 }
             }
@@ -226,8 +226,8 @@ fun AppNav(container: AppContainer) {
         },
     ) { padding ->
         NavHost(nav, startDestination = start, modifier = Modifier.padding(padding)) {
-            composable<Onboarding> {
-                OnboardingRoute(container) { isDefault ->
+            composable<Onboarding> { entry ->
+                OnboardingRoute(container, entry.toRoute<Onboarding>().server) { isDefault ->
                     // Pops Onboarding even when it was the start destination; AppNav's start is frozen at first load.
                     nav.navigate(Home) {
                         popUpTo<Onboarding> { inclusive = true }
@@ -281,7 +281,7 @@ fun AppNav(container: AppContainer) {
             }
             composable<Settings> {
                 val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
-                SettingsScreen(vm, snackbar, onSignIn = { nav.navigate(Onboarding) }) { nav.popBackStack() }
+                SettingsScreen(vm, snackbar, onSignIn = { nav.navigate(Onboarding(it)) }) { nav.popBackStack() }
             }
         }
     }
@@ -296,7 +296,7 @@ fun AppNav(container: AppContainer) {
             },
             onAddServer = {
                 sheetOpen = false
-                nav.navigate(Onboarding)
+                nav.navigate(Onboarding())
             },
             onSettings = {
                 sheetOpen = false

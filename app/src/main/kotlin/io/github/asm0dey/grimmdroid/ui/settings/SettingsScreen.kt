@@ -91,7 +91,7 @@ private val LICENCES =
 fun SettingsScreen(
     vm: SettingsViewModel,
     snackbar: SnackbarHostState,
-    onSignIn: () -> Unit,
+    onSignIn: (baseUrl: String) -> Unit,
     onBack: () -> Unit,
 ) {
     val accounts by vm.accountList.collectAsState()
@@ -120,7 +120,10 @@ fun SettingsScreen(
         Column(Modifier.verticalScroll(rememberScrollState())) {
             Section(stringResource(R.string.section_accounts))
             accounts.forEach { account ->
-                AccountRow(account, onSyncNow = { vm.syncNow(account.id) }, onSignIn = onSignIn, onSignOut = { confirming = account.id })
+                AccountRow(account, onSyncNow = { vm.syncNow(account.id) }, onSignIn = { onSignIn(account.baseUrl) }, onSignOut = {
+                    confirming =
+                        account.id
+                })
             }
 
             Section(stringResource(R.string.section_downloads))

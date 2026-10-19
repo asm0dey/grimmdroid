@@ -19,7 +19,11 @@ package io.github.asm0dey.grimmdroid.ui.nav
 
 import kotlinx.serialization.Serializable
 
-@Serializable data object Onboarding
+/** [server] prefills the address, for signing a signed-out account back in. */
+@Serializable
+data class Onboarding(
+    val server: String? = null,
+)
 
 @Serializable data object Home
 

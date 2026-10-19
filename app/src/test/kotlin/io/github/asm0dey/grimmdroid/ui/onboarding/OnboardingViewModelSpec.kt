@@ -82,10 +82,14 @@ private class Fixture(
     var completed = 0
     var startError: Exception? = null
     var saveError: Exception? = null
+    val probed = mutableListOf<String>()
 
-    fun vm() =
+    fun vm(server: String? = null) =
         OnboardingViewModel(
-            probe = { probeResult },
+            probe = {
+                probed += it
+                probeResult
+            },
             passwordLogin = { _, _, _, _ -> loginResult },
             oidcStart = { baseUrl, version, _ ->
                 startError?.let { throw it }
@@ -100,6 +104,7 @@ private class Fixture(
                 42L
             },
             scheduleSync = { synced += it },
+            server = server,
         )
 }
 
@@ -120,6 +125,21 @@ class OnboardingViewModelSpec :
                 }
                 error
             }
+
+        test("signing a signed-out account back in starts from its server address") {
+            Fixture().vm().initialAddress shouldBe "https://"
+            val f = Fixture()
+            val vm = f.vm(server = "https://grim.example")
+            vm.initialAddress shouldBe "https://grim.example"
+            runTest(main) {
+                vm.submitServer(vm.initialAddress)
+                advanceUntilIdle()
+                vm.signIn("pavel", "pw")
+                advanceUntilIdle()
+            }
+            f.probed shouldBe listOf("https://grim.example")
+            f.saved.single().baseUrl shouldBe "https://grim.example"
+        }
 
         test("each probe failure maps to its copy") {
             probeError(ProbeResult.Unreachable) shouldBe "Can't reach this server"
