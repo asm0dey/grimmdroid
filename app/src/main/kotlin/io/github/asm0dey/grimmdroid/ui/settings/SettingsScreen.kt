@@ -21,7 +21,6 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -69,6 +68,7 @@ import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
 import io.github.asm0dey.grimmdroid.ui.nav.serverName
+import io.github.asm0dey.grimmdroid.ui.nav.syncedLabel
 import kotlinx.coroutines.launch
 
 // Assumed upstream repository; update if the project moves.
@@ -244,7 +244,7 @@ private fun AccountRow(
     val status =
         when {
             account.signedOut -> stringResource(R.string.signed_out)
-            synced != null -> stringResource(R.string.synced_at, DateUtils.getRelativeTimeSpanString(synced))
+            synced != null -> syncedLabel(LocalContext.current, synced)
             else -> stringResource(R.string.never_synced)
         }
     ListItem(

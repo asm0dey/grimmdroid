@@ -20,7 +20,6 @@ package io.github.asm0dey.grimmdroid.ui.nav
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
-import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
@@ -142,7 +141,7 @@ fun AppNav(container: AppContainer) {
     val syncStatus =
         when {
             sync is SyncState.Running -> stringResource(R.string.sync_running)
-            lastSynced != null -> stringResource(R.string.synced_at, DateUtils.getRelativeTimeSpanString(lastSynced))
+            lastSynced != null -> syncedLabel(LocalContext.current, lastSynced)
             else -> null
         }
     val baseUrl = current?.baseUrl

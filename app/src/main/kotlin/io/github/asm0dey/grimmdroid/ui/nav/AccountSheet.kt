@@ -17,6 +17,8 @@
  */
 package io.github.asm0dey.grimmdroid.ui.nav
 
+import android.content.Context
+import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -39,6 +41,18 @@ import io.ktor.http.Url
 
 /** The host the user typed, e.g. "books.example.net"; falls back to the stored URL if it can't be parsed. */
 internal fun serverName(baseUrl: String): String = runCatching { Url(baseUrl).host }.getOrNull()?.ifEmpty { null } ?: baseUrl
+
+/** "Synced 5 minutes ago"; under a minute "Synced just now", where DateUtils would say "0 minutes ago". */
+internal fun syncedLabel(
+    context: Context,
+    at: Long,
+    now: Long = System.currentTimeMillis(),
+): String =
+    if (now - at < DateUtils.MINUTE_IN_MILLIS) {
+        context.getString(R.string.synced_just_now)
+    } else {
+        context.getString(R.string.synced_at, DateUtils.getRelativeTimeSpanString(at, now, DateUtils.MINUTE_IN_MILLIS))
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

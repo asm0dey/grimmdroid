@@ -60,6 +60,7 @@
     <string name="badge_audiobook">Audiobook</string>
     <string name="sync_running">Syncing…</string>
     <string name="synced_at">Synced %1$s</string>
+    <string name="synced_just_now">Synced just now</string>
     <string name="shelves_section">Shelves</string>
     <string name="magic_shelves_section">Magic shelves</string>
     <string name="no_shelves">No shelves on this server yet</string>
