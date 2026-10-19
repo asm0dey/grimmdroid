@@ -72,20 +72,22 @@ private const val USER = "admin"
 private const val PASSWORD = "integration-pass"
 
 private class MemoryTokens(
-    @Volatile var tokens: Tokens?,
+    private var tokens: Tokens?,
 ) : TokenSource {
-    val saved = mutableListOf<Tokens>()
+    private val lock = Any()
+    private val saved = mutableListOf<Tokens>()
 
-    override suspend fun current() = tokens
+    fun savedSnapshot(): List<Tokens> = synchronized(lock) { saved.toList() }
 
-    override suspend fun save(t: Tokens) {
-        saved += t
-        tokens = t
-    }
+    override suspend fun current() = synchronized(lock) { tokens }
 
-    override suspend fun expired() {
-        tokens = null
-    }
+    override suspend fun save(t: Tokens) =
+        synchronized(lock) {
+            saved += t
+            tokens = t
+        }
+
+    override suspend fun expired() = synchronized(lock) { tokens = null }
 }
 
 private suspend fun until(
@@ -252,8 +254,8 @@ class LiveServerTest :
             if (wait > 0) delay(wait)
             val store = MemoryTokens(fresh.copy(accessToken = "expired.${fresh.accessToken.substringAfter('.')}"))
             GrimmoryApi(authedClient(base, store)).me().isAdmin shouldBe true
-            store.saved.size shouldBe 1
-            store.saved.single().refreshToken shouldNotBe fresh.refreshToken
+            store.savedSnapshot().size shouldBe 1
+            store.savedSnapshot().single().refreshToken shouldNotBe fresh.refreshToken
         }
 
         test("OIDC state endpoint returns a state") {

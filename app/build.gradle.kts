@@ -5,6 +5,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+kotlin {
+    compilerOptions {
+        optIn.add("org.readium.r2.shared.ExperimentalReadiumApi")
+    }
+}
+
 android {
     namespace = "io.github.asm0dey.grimmdroid"
     compileSdk = 37
