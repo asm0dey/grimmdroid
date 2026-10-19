@@ -54,6 +54,8 @@ class MainActivity : ComponentActivity() {
 
     private fun forwardOidcRedirect(intent: Intent) {
         val data = intent.data ?: return
-        if (data.scheme == "grimmory" && data.host == "oauth2-callback") OidcRedirects.incoming.tryEmit(Url(data.toString()))
+        if (data.scheme != "grimmory" || data.host != "oauth2-callback") return
+        // Any app can send this Intent; a malformed URI must not crash us.
+        runCatching { Url(data.toString()) }.onSuccess { OidcRedirects.incoming.tryEmit(it) }
     }
 }
