@@ -79,6 +79,8 @@ class LibrarySync(
                 } catch (e: AppApiMissing) {
                     SyncState.Unsupported(versionOrNull(api))
                 } catch (e: CancellationException) {
+                    // Sign-out, lost network or a stopped worker: nothing runs any more, so don't leave the spinner up.
+                    emit(accountId, SyncState.Idle)
                     throw e
                 } catch (e: SessionExpiredException) {
                     SyncState.SignedOut // authedClient has already marked the account signed out

@@ -42,10 +42,12 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -84,6 +86,8 @@ private class FakeServer {
     var shelfIdsMissing = false
     var version: String? = "v9.9.9"
     var appLibrariesBroken = false
+    var booksGate: CompletableDeferred<Unit>? = null
+    val booksReached = CompletableDeferred<Unit>()
 
     val engine =
         MockEngine { req ->
@@ -136,6 +140,8 @@ private class FakeServer {
                             }
 
                             "/api/v1/app/books" -> {
+                                booksReached.complete(Unit)
+                                booksGate?.await()
                                 page(p["page"]!!.toInt(), p["size"]!!.toInt())
                             }
 
@@ -186,9 +192,12 @@ class LibrarySyncTest {
                 accounts.addOrUpdate("https://grim.example", "u", "1.0", AppUserInfo(canDownload = false), Tokens("a", "r"))
             }
         sync =
-            LibrarySync(db.catalogDao(), accounts, { GrimmoryApi(authedClient(it.baseUrl, accounts.tokenSource(it.id), server.engine)) }) {
-                now++
-            }
+            LibrarySync(
+                db.catalogDao(),
+                accounts,
+                { GrimmoryApi(authedClient(it.baseUrl, accounts.tokenSource(it.id), server.engine)) },
+                { now++ },
+            )
     }
 
     @After
@@ -410,5 +419,17 @@ class LibrarySyncTest {
             server.failShelfIds = true
             assertTrue(sync.sync(accountId) is SyncState.Failed)
             assertEquals(3, books().size)
+        }
+
+    @Test
+    fun cancelledSweepDoesNotStayRunning() =
+        runBlocking {
+            server.titles = mapOf(1L to "A")
+            server.booksGate = CompletableDeferred()
+            val job = scope.launch { sync.sync(accountId) }
+            server.booksReached.await()
+            assertTrue(state() is SyncState.Running)
+            job.cancelAndJoin()
+            assertEquals(SyncState.Idle, state())
         }
 }
