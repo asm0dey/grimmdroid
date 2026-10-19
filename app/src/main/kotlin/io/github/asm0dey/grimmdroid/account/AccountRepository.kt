@@ -25,6 +25,8 @@ import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import java.security.GeneralSecurityException
 
@@ -38,6 +40,11 @@ class AccountRepository(
     val current: Flow<AccountEntity?> =
         combine(dao.all(), settings.currentAccountId) { all, id -> all.firstOrNull { it.id == id } }
 
+    // Decrypted tokens per account, so cover requests don't hit Room and the Keystore each time. Every token write goes
+    // through this class under [tokenLock], so a read racing a write can't cache the old tokens.
+    private val tokenCache = HashMap<Long, Tokens>()
+    private val tokenLock = Mutex()
+
     private fun seal(t: Tokens) = cipher.encrypt(GrimmoryJson.encodeToString(t).encodeToByteArray())
 
     suspend fun addOrUpdate(
@@ -48,16 +55,19 @@ class AccountRepository(
         tokens: Tokens,
     ): Long {
         val id =
-            dao.upsert(
-                AccountEntity(
-                    baseUrl = baseUrl,
-                    username = username,
-                    serverVersion = version,
-                    canDownload = user.canDownload,
-                    isAdmin = user.isAdmin,
-                    encryptedTokens = seal(tokens),
-                ),
-            )
+            tokenLock.withLock {
+                dao
+                    .upsert(
+                        AccountEntity(
+                            baseUrl = baseUrl,
+                            username = username,
+                            serverVersion = version,
+                            canDownload = user.canDownload,
+                            isAdmin = user.isAdmin,
+                            encryptedTokens = seal(tokens),
+                        ),
+                    ).also { tokenCache.remove(it) }
+            }
         settings.setCurrentAccountId(id)
         return id
     }
@@ -82,7 +92,10 @@ class AccountRepository(
         id: Long,
         deleteDownloads: Boolean,
     ) {
-        dao.delete(id)
+        tokenLock.withLock {
+            dao.delete(id)
+            tokenCache.remove(id)
+        }
         if (settings.currentAccountId.first() == id) {
             settings.setCurrentAccountId(
                 dao
@@ -96,10 +109,12 @@ class AccountRepository(
 
     fun tokenSource(id: Long): TokenSource =
         object : TokenSource {
-            override suspend fun current(): Tokens? {
+            override suspend fun current(): Tokens? = tokenLock.withLock { tokenCache[id] ?: read() }
+
+            private suspend fun read(): Tokens? {
                 val blob = dao.get(id)?.encryptedTokens ?: return null
                 return try {
-                    GrimmoryJson.decodeFromString<Tokens>(cipher.decrypt(blob).decodeToString())
+                    GrimmoryJson.decodeFromString<Tokens>(cipher.decrypt(blob).decodeToString()).also { tokenCache[id] = it }
                 } catch (e: GeneralSecurityException) {
                     unreadable()
                 } catch (e: IllegalArgumentException) {
@@ -114,9 +129,17 @@ class AccountRepository(
                 return null
             }
 
-            override suspend fun save(t: Tokens) = dao.setTokens(id, seal(t), signedOut = false)
+            override suspend fun save(t: Tokens) =
+                tokenLock.withLock {
+                    dao.setTokens(id, seal(t), signedOut = false)
+                    tokenCache[id] = t
+                }
 
             // Idempotent: concurrent in-flight 401s all land on the same UPDATE.
-            override suspend fun expired() = dao.markSignedOut(id)
+            override suspend fun expired() =
+                tokenLock.withLock {
+                    tokenCache.remove(id)
+                    dao.markSignedOut(id)
+                }
         }
 }

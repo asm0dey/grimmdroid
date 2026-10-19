@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -54,8 +55,12 @@ data class ShelfScope(
     val magic: Boolean,
 )
 
-// No row has this account id, so the query matches nothing until the current account is known.
+// Placeholder until the current account is known; nothing is queried for it.
 private const val NO_ACCOUNT = -1L
+
+// Placeholders give the fast scroller the full count; jumpThreshold makes a far scrollToItem reload around the target
+// instead of paging through everything in between; maxSize drops pages far behind on a 10k-book mirror.
+internal val LibraryPaging = PagingConfig(pageSize = 60, enablePlaceholders = true, jumpThreshold = 180, maxSize = 600)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryViewModel(
@@ -71,12 +76,14 @@ class LibraryViewModel(
 
     val books: Flow<PagingData<BookRow>> =
         _query
-            .flatMapLatest { q -> Pager(PagingConfig(pageSize = 60)) { pagingSource(q.toSql()) }.flow }
+            .filter { it.accountId != NO_ACCOUNT }
+            .flatMapLatest { q -> Pager(LibraryPaging) { pagingSource(q.toSql()) }.flow }
             .cachedIn(viewModelScope)
 
     val libraries: StateFlow<List<LibraryEntity>> =
         _query
             .map { it.accountId }
+            .filter { it != NO_ACCOUNT }
             .distinctUntilChanged()
             .flatMapLatest(libraries)
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

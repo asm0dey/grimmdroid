@@ -28,6 +28,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -103,6 +104,32 @@ class LibraryViewModelSpec :
                 vm.query.value.shelfId shouldBe 7
                 vm.query.value.sort shouldBe BookSort.AUTHOR
                 vm.libraries.value.map { it.id } shouldBe listOf(20L)
+            }
+        }
+
+        test("paging jumps on a far fast-scroll instead of loading every page in between") {
+            LibraryPaging.pageSize shouldBe 60
+            LibraryPaging.enablePlaceholders shouldBe true
+            LibraryPaging.jumpThreshold shouldBe 180
+            LibraryPaging.maxSize shouldBe 600
+        }
+
+        test("nothing is queried until the current account is known") {
+            runTest(dispatcher) {
+                val account = MutableStateFlow<Long?>(null)
+                val queried = mutableListOf<Long>()
+                val vm =
+                    LibraryViewModel(null, account, { q ->
+                        queried += q.argCount.toLong()
+                        EmptySource()
+                    }, { flowOf(emptyList()) }, flowOf(Layout.GRID), {})
+                backgroundScope.launch { vm.books.collect {} }
+                advanceUntilIdle()
+                queried shouldBe emptyList()
+                account.value = 1
+                advanceUntilIdle()
+                queried.size shouldBe 1
+                vm.query.value.accountId shouldBe 1
             }
         }
 

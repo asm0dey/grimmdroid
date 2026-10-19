@@ -86,13 +86,35 @@ suspend fun HttpResponse.tokens(): Tokens =
 // Process-wide, so separate clients for one server (UI, download worker) never spend the same rotating refresh token.
 private val refreshLocks = ConcurrentHashMap<String, Mutex>()
 
+/**
+ * The one refresh path for every client of [baseUrl] (Ktor bearer auth and the cover Authenticator).
+ * Returns the tokens to retry with, or null when signed out (no tokens, or the server answered 400/401);
+ * other failures throw and keep the session. [staleAccess] is the access token that was rejected: if the stored one
+ * differs, another client already refreshed and the old refresh token is revoked server-side, so it is reused as is.
+ */
+suspend fun refreshSession(
+    baseUrl: String,
+    tokens: TokenSource,
+    staleAccess: String?,
+    post: suspend (RefreshRequest) -> HttpResponse,
+): Tokens? =
+    refreshLocks.getOrPut(baseUrl) { Mutex() }.withLock {
+        val current = tokens.current() ?: return@withLock null
+        if (current.accessToken != staleAccess) return@withLock current
+        val response = post(RefreshRequest(current.refreshToken))
+        when {
+            response.status == HttpStatusCode.Unauthorized || response.status == HttpStatusCode.BadRequest -> null
+            !response.status.isSuccess() -> throw RefreshFailedException(response.status)
+            else -> response.tokens().also { tokens.save(it) }
+        }
+    }
+
 fun authedClient(
     baseUrl: String,
     tokens: TokenSource,
     engine: HttpClientEngine = OkHttp.create(),
 ): HttpClient {
     val base = Url(baseUrl)
-    val refreshLock = refreshLocks.getOrPut(baseUrl) { Mutex() }
 
     fun isBase(url: Url) = url.host == base.host && url.port == base.port
 
@@ -124,35 +146,14 @@ fun authedClient(
                 loadTokens { tokens.current()?.let { BearerTokens(it.accessToken, it.refreshToken) } }
                 // null = signed out (sessionExpiry then calls expired()); transient failures throw and keep the session.
                 refreshTokens {
-                    refreshLock.withLock {
-                        val current = tokens.current() ?: return@withLock null
-                        if (current.accessToken != oldTokens?.accessToken) {
-                            // Another client already refreshed; the old refresh token is revoked server-side.
-                            return@withLock BearerTokens(current.accessToken, current.refreshToken)
+                    refreshSession(baseUrl, tokens, oldTokens?.accessToken) { body ->
+                        client.post("api/v1/auth/refresh") {
+                            markAsRefreshTokenRequest()
+                            expectSuccess = false
+                            contentType(ContentType.Application.Json)
+                            setBody(body)
                         }
-                        val response =
-                            client.post("api/v1/auth/refresh") {
-                                markAsRefreshTokenRequest()
-                                expectSuccess = false
-                                contentType(ContentType.Application.Json)
-                                setBody(RefreshRequest(current.refreshToken))
-                            }
-                        when {
-                            response.status == HttpStatusCode.Unauthorized || response.status == HttpStatusCode.BadRequest -> {
-                                null
-                            }
-
-                            !response.status.isSuccess() -> {
-                                throw RefreshFailedException(response.status)
-                            }
-
-                            else -> {
-                                val fresh = response.tokens()
-                                tokens.save(fresh)
-                                BearerTokens(fresh.accessToken, fresh.refreshToken)
-                            }
-                        }
-                    }
+                    }?.let { BearerTokens(it.accessToken, it.refreshToken) }
                 }
             }
         }

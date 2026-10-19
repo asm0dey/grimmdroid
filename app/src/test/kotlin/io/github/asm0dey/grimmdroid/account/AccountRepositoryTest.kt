@@ -45,9 +45,14 @@ import java.nio.file.Files
 import javax.crypto.AEADBadTagException
 
 private class FakeTokenCipher : TokenCipher {
+    var decrypts = 0
+
     override fun encrypt(plain: ByteArray) = plain.map { (it.toInt() xor 0x5A).toByte() }.toByteArray()
 
-    override fun decrypt(cipher: ByteArray) = encrypt(cipher)
+    override fun decrypt(cipher: ByteArray): ByteArray {
+        decrypts++
+        return encrypt(cipher)
+    }
 }
 
 @RunWith(AndroidJUnit4::class)
@@ -56,6 +61,7 @@ class AccountRepositoryTest {
     private lateinit var dir: File
     private lateinit var scope: CoroutineScope
     private lateinit var repo: AccountRepository
+    private val cipher = FakeTokenCipher()
     private val user = AppUserInfo(isAdmin = false, canDownload = true)
     private val tokens = Tokens("access-1", "refresh-1")
 
@@ -66,7 +72,7 @@ class AccountRepositoryTest {
         dir = Files.createTempDirectory("ds").toFile()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val ds = PreferenceDataStoreFactory.create(scope = scope) { File(dir, "settings.preferences_pb") }
-        repo = AccountRepository(db.accountDao(), FakeTokenCipher(), SettingsStore(ds))
+        repo = AccountRepository(db.accountDao(), cipher, SettingsStore(ds))
     }
 
     @After
@@ -184,5 +190,19 @@ class AccountRepositoryTest {
             assertTrue(a.isAdmin)
             assertEquals(42L, a.lastSyncedAt)
             assertEquals(tokens, repo.tokenSource(id).current())
+        }
+
+    @Test
+    fun tokensAreDecryptedOnceAndEveryWriteRefreshesTheCache() =
+        runBlocking {
+            val id = add("https://a")
+            repeat(3) { assertEquals(tokens, repo.tokenSource(id).current()) }
+            assertEquals(1, cipher.decrypts)
+            repo.tokenSource(id).save(Tokens("n", "m"))
+            assertEquals(Tokens("n", "m"), repo.tokenSource(id).current())
+            repo.addOrUpdate("https://a", "u", "1.0", user, Tokens("relogin", "r"))
+            assertEquals(Tokens("relogin", "r"), repo.tokenSource(id).current())
+            repo.remove(id, deleteDownloads = false)
+            assertNull(repo.tokenSource(id).current())
         }
 }

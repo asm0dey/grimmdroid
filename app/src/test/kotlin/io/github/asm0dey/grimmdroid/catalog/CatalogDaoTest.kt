@@ -296,6 +296,11 @@ class CatalogDaoTest {
         }
 
     @Test
+    fun bookSourceSupportsJumpsForTheFastScroller() {
+        assertTrue(dao.books(BookQuery(1).toSql()).jumpingSupported)
+    }
+
+    @Test
     fun librariesAndShelvesAreListedPerAccountByName() =
         runBlocking {
             dao.replaceLibraries(1, listOf(LibraryEntity(1, 1, "b", 1), LibraryEntity(1, 2, "A", 1)))

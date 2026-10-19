@@ -65,10 +65,12 @@ fun FastScroller(
     var bubble by remember { mutableStateOf<String?>(null) }
     BoxWithConstraints(modifier.fillMaxHeight()) {
         val track = constraints.maxHeight - with(LocalDensity.current) { TouchSize.roundToPx() }
-        val last = itemCount - 1
+
+        // The first visible index tops out at itemCount - visible, so that is the bottom of the track.
+        fun range() = (itemCount - state.layoutInfo.visibleItemsInfo.size).coerceAtLeast(1)
 
         // Read in the layout phase so scrolling moves the thumb without recomposing.
-        fun fraction() = if (dragging) dragFraction else state.firstVisibleItemIndex.toFloat() / last
+        fun fraction() = if (dragging) dragFraction else (state.firstVisibleItemIndex.toFloat() / range()).coerceIn(0f, 1f)
         if (dragging) {
             bubble?.let {
                 Surface(
@@ -98,7 +100,7 @@ fun FastScroller(
                         onDragCancel = { dragging = false },
                     ) { _, dy ->
                         dragFraction = (dragFraction + dy / track).coerceIn(0f, 1f)
-                        val index = (dragFraction * last).roundToInt()
+                        val index = (dragFraction * range()).roundToInt()
                         currentLabel(index)?.let { bubble = it }
                         scope.launch { state.scrollToItem(index) }
                     }

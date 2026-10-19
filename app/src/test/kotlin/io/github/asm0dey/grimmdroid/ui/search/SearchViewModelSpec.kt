@@ -36,6 +36,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 
 internal class EmptySource : PagingSource<Int, BookRow>() {
+    // Like Room's source; required by LibraryPaging's jumpThreshold.
+    override val jumpingSupported = true
+
     override suspend fun load(params: LoadParams<Int>) = LoadResult.Page<Int, BookRow>(emptyList(), null, null)
 
     override fun getRefreshKey(state: PagingState<Int, BookRow>): Int? = null

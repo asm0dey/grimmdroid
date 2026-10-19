@@ -71,9 +71,10 @@ import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.catalog.BookRow
 import io.github.asm0dey.grimmdroid.catalog.BookSort
 import io.github.asm0dey.grimmdroid.settings.Layout
+import io.github.asm0dey.grimmdroid.sync.AUDIOBOOK_FILE_TYPE
 
 // Grimmory's BookFileType values, as stored in BookEntity.primaryFileType.
-private val Formats = listOf("EPUB", "PDF", "CBX", "FB2", "MOBI", "AZW3", "AUDIOBOOK")
+private val Formats = listOf("EPUB", "PDF", "CBX", "FB2", "MOBI", "AZW3", AUDIOBOOK_FILE_TYPE)
 
 private val SortLabels =
     mapOf(
@@ -100,7 +101,8 @@ fun LibraryContent(
 
     Column(Modifier.fillMaxSize()) {
         header()
-        if (libraries.size > 1) {
+        // Also shown while filtered, so a library that vanished in a sync can still be cleared with "All".
+        if (libraries.size > 1 || query.libraryId != null) {
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     FilterChip(query.libraryId == null, { vm.setLibrary(null) }, { Text(stringResource(R.string.all_libraries)) })

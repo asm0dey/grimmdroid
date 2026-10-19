@@ -31,6 +31,8 @@ import io.github.asm0dey.grimmdroid.api.GrimmoryApi
 import io.github.asm0dey.grimmdroid.api.ServerProbe
 import io.github.asm0dey.grimmdroid.api.authedClient
 import io.github.asm0dey.grimmdroid.api.coverAuthInterceptor
+import io.github.asm0dey.grimmdroid.api.coverAuthenticator
+import io.github.asm0dey.grimmdroid.api.coverSession
 import io.github.asm0dey.grimmdroid.api.httpClient
 import io.github.asm0dey.grimmdroid.auth.OidcLogin
 import io.github.asm0dey.grimmdroid.auth.PasswordLogin
@@ -99,7 +101,15 @@ class AppContainer(
             .components {
                 add(
                     OkHttpNetworkFetcherFactory(
-                        callFactory = { OkHttpClient.Builder().addInterceptor(coverAuthInterceptor(accounts)).build() },
+                        callFactory = {
+                            val session = accounts.coverSession()
+                            OkHttpClient
+                                .Builder()
+                                .addInterceptor(coverAuthInterceptor(session))
+                                // Refreshes through the same per-server lock as the API clients; httpClient carries no tokens.
+                                .authenticator(coverAuthenticator(session, httpClient))
+                                .build()
+                        },
                     ),
                 )
             }.diskCache {
@@ -109,4 +119,10 @@ class AppContainer(
                     .maxSizeBytes(250L * 1024 * 1024)
                     .build()
             }.build()
+
+    /** Drops every cached cover (memory and disk); for account removal. */
+    fun clearCoverCache() {
+        imageLoader.memoryCache?.clear()
+        imageLoader.diskCache?.clear()
+    }
 }
