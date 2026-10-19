@@ -129,6 +129,20 @@ class ReaderViewModel(
     var current: Locator? = null
         private set
 
+    private var echo: Locator? = null
+
+    // Where the navigator opened (else the first report); reading away from it means the user moved, so the
+    // server's place is only offered, never opened.
+    private var openedAt: Double? = null
+
+    private fun position() = current?.locations?.totalProgression
+
+    private fun moved(): Boolean {
+        val now = position() ?: return false
+        val start = openedAt ?: return false
+        return kotlin.math.abs(now - start) > SAME_PLACE
+    }
+
     private var save: Job? = null
     private var debounced: Job? = null
     private var flush: Job? = null
@@ -137,24 +151,47 @@ class ReaderViewModel(
         viewModelScope.launch {
             val local = localRow.await()?.totalProgression
             online.first { it }
-            when (val d = decideOnOpen(local, fetchServer())) {
-                is OpenDecision.OpenAt -> toLocator(d.p)?.let { go(it) }
+            val server = fetchServer()
+            // Decided against where the reader is now: the user may have read on while offline or waiting.
+            when (val d = decideOnOpen(if (local == null && !moved()) null else position() ?: local, server)) {
+                is OpenDecision.OpenAt -> toLocator(d.p)?.let { if (!moved()) go(it) else offer(d.p) }
                 is OpenDecision.OfferJump -> offer(d.p)
                 OpenDecision.Stay -> scheduleUpload() // behind or equal: the phone's position goes up
             }
         }
     }
 
+    /**
+     * The locator to create the navigator with ([saved], or the book's start). Readium's currentLocator starts as
+     * this very locator; that echo is not a report.
+     */
+    fun navigatorStart(
+        pub: Publication,
+        saved: Locator?,
+    ): Locator? =
+        (current ?: saved ?: pub.readingOrder.firstOrNull()?.let(pub::locatorFromLink)).also {
+            echo = it
+            if (openedAt == null) openedAt = it?.locations?.totalProgression ?: 0.0 // the book's start has none
+        }
+
     fun onLocatorChanged(reported: Locator) {
+        val start = echo
+        // The activity may have added a selector to the echo.
+        if (start != null && reported.copyWithLocations(otherLocations = start.locations.otherLocations) == start) {
+            echo = null
+            return
+        }
         val page = reported.locations.totalProgression
+        if (openedAt == null) openedAt = page
         val target = arriving
         // The target's page starts at or before it; a report past it is a page turn. shortcut: a page turned back
         // before the target's page was ever reported counts as arrival, until the next turn.
         val locator =
             if (
                 target != null &&
+                page != null &&
                 target.href == reported.href &&
-                (page ?: 0.0) <= (target.locations.totalProgression ?: 1.0) &&
+                page <= (target.locations.totalProgression ?: 1.0) &&
                 (arrivedPage == null || arrivedPage == page)
             ) {
                 arrivedPage = page
@@ -171,7 +208,8 @@ class ReaderViewModel(
         current = locator
         val previous = save
         save =
-            viewModelScope.launch {
+            // Outlives the screen: the last save must land before the final flush uploads it.
+            pendingScope.launch {
                 previous?.join() // in order: a late older save must not win
                 sync.saveLocal(accountId, bookId, locator.toJSON().toString(), locator.locations.totalProgression ?: 0.0)
             }
@@ -193,7 +231,7 @@ class ReaderViewModel(
     fun syncNow() {
         viewModelScope.launch {
             val server = fetchServer() ?: return@launch
-            val local = current?.locations?.totalProgression ?: localRow.await()?.totalProgression ?: 0.0
+            val local = position() ?: localRow.await()?.totalProgression ?: 0.0
             when (val d = decideOnSyncNow(local, server)) {
                 is OpenDecision.OfferJump -> offer(d.p)
                 else -> _jump.value = null

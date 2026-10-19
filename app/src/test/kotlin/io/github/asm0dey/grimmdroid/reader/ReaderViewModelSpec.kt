@@ -18,6 +18,7 @@
 package io.github.asm0dey.grimmdroid.reader
 
 import android.app.Application
+import androidx.lifecycle.viewmodel.initializer
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -89,7 +90,7 @@ class ReaderViewModelSpec {
         server.progressJson = """{"epubProgress":{"cfi":"epubcfi(/6/4!/4/2)","href":"c1.xhtml","percentage":$percentage}}"""
     }
 
-    private fun TestScope.vm(online: Boolean = true) =
+    private fun TestScope.vm(online: MutableStateFlow<Boolean> = MutableStateFlow(true)) =
         ReaderViewModel(
             1,
             BOOK,
@@ -99,7 +100,7 @@ class ReaderViewModelSpec {
             sync,
             dao,
             { server.api },
-            MutableStateFlow(online),
+            online,
             backgroundScope,
             dispatcher,
         )
@@ -199,21 +200,112 @@ class ReaderViewModelSpec {
         }
 
     @Test
-    fun reopeningKeepsTheSavedPlaceWhileOnItsPage() =
+    fun reopeningTwiceKeepsTheSavedPlaceWhileOnItsPage() =
+        runTest(dispatcher) {
+            local(0.6)
+            serverCfi(60.0)
+            repeat(2) {
+                val gets = server.gets.size
+                val vm = vm()
+                assertEquals(0.6, vm.openNavigator().locations.totalProgression!!, 0.0) // Readium's echo of the saved place
+                vm.onLocatorChanged(locator(0.58)) // then the start of its page, twice
+                vm.onLocatorChanged(locator(0.58))
+                until { server.gets.size > gets }
+                settle()
+                assertEquals(0.6, row()!!.totalProgression, 0.0)
+                assertNull(vm.jump.value)
+            }
+        }
+
+    @Test
+    fun theLastSaveAndFlushOutliveTheScreen() =
+        runTest(dispatcher) {
+            local(0.5)
+            serverCfi(10.0)
+            val store = androidx.lifecycle.ViewModelStore()
+            val created = vm()
+            val vm =
+                androidx.lifecycle.ViewModelProvider(
+                    store,
+                    androidx.lifecycle.viewmodel.viewModelFactory { initializer { created } },
+                )[ReaderViewModel::class.java]
+            until { server.gets.size == 1 }
+            vm.openNavigator()
+            vm.onLocatorChanged(locator(0.48))
+            vm.onLocatorChanged(locator(0.7))
+            vm.onStop()
+            store.clear() // onCleared cancels viewModelScope before the save lands
+            until { server.puts.size == 1 }
+            assertEquals(0.7, row()!!.totalProgression, 0.0)
+            assertTrue(server.puts.single().contains("\"progressPercent\":70.0"))
+        }
+
+    @Test
+    fun offlineFirstOpenNeverMovesTheReaderBack() =
+        runTest(dispatcher) {
+            serverCfi(10.0)
+            val online = MutableStateFlow(false)
+            val vm = vm(online)
+            val navigated = mutableListOf<Locator>()
+            backgroundScope.launchCollect(vm) { navigated += it }
+            assertEquals("c1.xhtml", vm.openNavigator().href.toString()) // no saved place: the book's start
+            vm.onLocatorChanged(locator(0.5)) // read on while offline
+            settle()
+            online.value = true
+            until { server.gets.size == 1 }
+            settle()
+            assertTrue(navigated.isEmpty())
+            assertNull(vm.jump.value)
+            assertEquals(0.5, row()!!.totalProgression, 0.0)
+        }
+
+    @Test
+    fun aServerAheadOfWhereTheUserMovedIsOfferedNotOpened() =
+        runTest(dispatcher) {
+            serverCfi(60.0)
+            val online = MutableStateFlow(false)
+            val vm = vm(online)
+            val navigated = mutableListOf<Locator>()
+            backgroundScope.launchCollect(vm) { navigated += it }
+            vm.openNavigator()
+            vm.onLocatorChanged(locator(0.2))
+            settle()
+            online.value = true
+            until { vm.jump.value != null }
+            assertEquals(60, vm.jump.value!!.percent)
+            assertTrue(navigated.isEmpty())
+        }
+
+    @Test
+    fun firstOpenAtTheServerSurvivesTheBookStartEchoEitherSide() =
+        runTest(dispatcher) {
+            for (echoFirst in listOf(true, false)) {
+                kotlinx.coroutines.runBlocking { dao.deleteAccount(1) }
+                serverCfi(60.0)
+                val vm = vm()
+                val navigated = mutableListOf<Locator>()
+                val collecting = backgroundScope.launchCollect(vm) { navigated += it }
+                if (echoFirst) vm.openNavigator()
+                until { navigated.isNotEmpty() }
+                if (!echoFirst) vm.openNavigator()
+                vm.onLocatorChanged(locator(0.58)) // the start of the target's page
+                settle()
+                assertEquals("echoFirst=$echoFirst", 0.6, row()!!.totalProgression, 0.0)
+                collecting.cancel()
+            }
+        }
+
+    @Test
+    fun aReportWithoutTotalProgressionIsNotTakenForTheTarget() =
         runTest(dispatcher) {
             local(0.6)
             serverCfi(10.0)
             val vm = vm()
-            assertEquals(
-                "c2.xhtml",
-                vm.initialLocator
-                    .await()!!
-                    .href
-                    .toString(),
-            )
-            vm.onLocatorChanged(locator(0.58))
+            vm.openNavigator()
+            vm.onLocatorChanged(locator(null))
+            vm.onLocatorChanged(locator(null))
             settle()
-            assertEquals(0.6, kotlinx.coroutines.runBlocking { dao.position(1, BOOK) }!!.totalProgression, 0.0)
+            assertNull(vm.current!!.locations.totalProgression)
         }
 
     @Test
@@ -250,7 +342,8 @@ class ReaderViewModelSpec {
             serverCfi(10.0)
             val vm = vm()
             until { server.gets.size == 1 }
-            vm.onLocatorChanged(locator(0.48)) // the navigator opens on the saved place's page
+            vm.openNavigator()
+            vm.onLocatorChanged(locator(0.48)) // the start of the saved place's page
             vm.onLocatorChanged(locator(0.7))
             until { kotlinx.coroutines.runBlocking { dao.position(1, BOOK) }?.totalProgression == 0.7 }
             vm.onStop()
@@ -290,7 +383,7 @@ class ReaderViewModelSpec {
         runTest(dispatcher) {
             local(0.4)
             serverCfi(60.0)
-            val vm = vm(online = false)
+            val vm = vm(MutableStateFlow(false))
             vm.publication.await()
             vm.onLocatorChanged(locator(0.45))
             advanceTimeBy(3_100)
@@ -300,12 +393,23 @@ class ReaderViewModelSpec {
             assertEquals(listOf(1L), enqueued)
         }
 
-    private fun locator(total: Double) =
-        Locator(
-            Url("c2.xhtml")!!,
-            MediaType.XHTML,
-            locations = Locator.Locations(progression = 0.0, totalProgression = total, otherLocations = mapOf("cssSelector" to "#a")),
-        )
+    /** What the activity does: create the navigator, whose currentLocator StateFlow first echoes its initial locator. */
+    private suspend fun ReaderViewModel.openNavigator(): Locator {
+        val start = navigatorStart(publication.await().getOrThrow(), initialLocator.await())!!
+        onLocatorChanged(start)
+        return start
+    }
+
+    private fun row() = kotlinx.coroutines.runBlocking { dao.position(1, BOOK) }
+
+    private fun locator(
+        total: Double?,
+        href: String = "c2.xhtml",
+    ) = Locator(
+        Url(href)!!,
+        MediaType.XHTML,
+        locations = Locator.Locations(progression = 0.0, totalProgression = total, otherLocations = mapOf("cssSelector" to "#a")),
+    )
 
     private fun CoroutineScope.launchCollect(
         vm: ReaderViewModel,

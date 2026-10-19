@@ -120,7 +120,7 @@ class ReaderActivity : FragmentActivity() {
                 ?.getCompleted()
                 ?.getOrNull()
         supportFragmentManager.fragmentFactory =
-            open?.let { navigatorFactory(it, vm.current) } ?: EpubNavigatorFragment.createDummyFactory()
+            open?.let { navigatorFactory(it, vm.navigatorStart(it, null)) } ?: EpubNavigatorFragment.createDummyFactory()
         supportFragmentManager.registerFragmentLifecycleCallbacks(
             object : FragmentManager.FragmentLifecycleCallbacks() {
                 override fun onFragmentViewCreated(
@@ -161,11 +161,11 @@ class ReaderActivity : FragmentActivity() {
                     Toast.makeText(this@ReaderActivity, it.message, Toast.LENGTH_LONG).show()
                     return@launch finish()
                 }
-            val initial = vm.current ?: vm.initialLocator.await()
+            val saved = vm.initialLocator.await()
             // A commit after onSaveInstanceState throws: wait until the activity is visible again.
             withStarted {
                 publication = pub
-                supportFragmentManager.fragmentFactory = navigatorFactory(pub, initial)
+                supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub, saved))
                 supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
             }
         }
