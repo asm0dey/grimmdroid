@@ -57,6 +57,7 @@ class PositionUploadWorker(
         if (accountId < 0) return Result.failure()
         val host = applicationContext as PositionUploadHost
         val dao = host.readerDao
+        host.positionSync.followUpStarted(accountId)
         val account = host.accounts.account(accountId)
         if (account == null) {
             dao.deleteAccount(accountId)
@@ -77,7 +78,12 @@ class PositionUploadWorker(
                     try {
                         // One archive per book per run: EpubArchive isn't thread-safe.
                         EpubArchive(File(download.path)).use { archive ->
-                            host.positionSync.upload(accountId, row.bookId, download.fileId) { archive.cfiForLocator(it) }
+                            host.positionSync.upload(
+                                accountId,
+                                row.bookId,
+                                download.fileId,
+                                enqueueOnFailure = false,
+                            ) { archive.cfiForLocator(it) }
                         }
                     } catch (_: IOException) {
                         null // file gone or unreadable: skip, keep pending

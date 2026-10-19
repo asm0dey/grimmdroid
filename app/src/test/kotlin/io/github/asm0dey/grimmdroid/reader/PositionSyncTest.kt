@@ -337,6 +337,28 @@ class PositionSyncTest {
         }
 
     @Test
+    fun repeatedFailuresEnqueueOnceUntilTheWorkerStarts() =
+        runBlocking {
+            dao.upsertPosition(row())
+            server.failWith = IOException("offline")
+            assertEquals(UploadResult.FAILED, sync.upload(1, BOOK, 42) { "c" })
+            assertEquals(UploadResult.FAILED, sync.upload(1, BOOK, 42) { "c" })
+            assertEquals(listOf(1L), enqueued)
+            sync.followUpStarted(1)
+            assertEquals(UploadResult.FAILED, sync.upload(1, BOOK, 42) { "c" })
+            assertEquals(listOf(1L, 1L), enqueued)
+        }
+
+    @Test
+    fun uploadWithoutEnqueueOnFailureEnqueuesNothing() =
+        runBlocking {
+            dao.upsertPosition(row())
+            server.failWith = IOException("offline")
+            assertEquals(UploadResult.FAILED, sync.upload(1, BOOK, 42, enqueueOnFailure = false) { "c" })
+            assertTrue(enqueued.isEmpty())
+        }
+
+    @Test
     fun savedDuringUploadStaysPending() =
         runBlocking {
             dao.upsertPosition(row(progression = 0.6))

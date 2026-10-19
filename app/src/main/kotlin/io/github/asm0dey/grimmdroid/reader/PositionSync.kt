@@ -158,6 +158,16 @@ class PositionSync(
     private val api: (AccountEntity) -> GrimmoryApi,
     private val enqueue: (accountId: Long) -> Unit,
 ) {
+    // Accounts with a follow-up run already queued: repeated failures before it starts enqueue nothing more.
+    private val queued =
+        java.util.concurrent.ConcurrentHashMap
+            .newKeySet<Long>()
+
+    /** Called by [PositionUploadWorker] as it starts: a failure from now on needs a new run. */
+    fun followUpStarted(accountId: Long) {
+        queued.remove(accountId)
+    }
+
     suspend fun saveLocal(
         accountId: Long,
         bookId: Long,
@@ -176,18 +186,20 @@ class PositionSync(
     ): UploadResult {
         dao.forcePosition(accountId, bookId)
         if (dao.position(accountId, bookId) == null) return UploadResult.FAILED
-        return upload(accountId, bookId, bookFileId, cfi)
+        return upload(accountId, bookId, bookFileId, cfi = cfi)
     }
 
     /**
      * Uploads the pending position. NORMAL never overwrites a server position further ahead (HELD_BACK, still pending);
      * FORCE always does. [cfi] maps the uploaded row's locator JSON to a CFI. Nothing pending counts as SENT.
      * A missing or signed-out account is FAILED with no request and nothing enqueued: only a sign-in can help.
+     * Other failures enqueue a follow-up run unless [enqueueOnFailure] is false (the worker retries by itself).
      */
     suspend fun upload(
         accountId: Long,
         bookId: Long,
         bookFileId: Long,
+        enqueueOnFailure: Boolean = true,
         cfi: (locatorJson: String) -> String?,
     ): UploadResult {
         val row = dao.position(accountId, bookId)?.takeIf { it.pending != PendingUpload.NONE } ?: return UploadResult.SENT
@@ -205,16 +217,19 @@ class PositionSync(
             dao.markUploaded(accountId, bookId, row.updatedAt, row.locatorJson)
             UploadResult.SENT
         } catch (_: IOException) {
-            failed(accountId)
+            failed(accountId, enqueueOnFailure)
         } catch (_: ResponseException) {
-            failed(accountId)
+            failed(accountId, enqueueOnFailure)
         } catch (_: SessionExpiredException) {
-            failed(accountId) // the account is signed out now: the worker returns success and keeps the row
+            failed(accountId, enqueueOnFailure) // the account is signed out now: the worker returns success and keeps the row
         }
     }
 
-    private fun failed(accountId: Long): UploadResult {
-        enqueue(accountId)
+    private fun failed(
+        accountId: Long,
+        enqueueOnFailure: Boolean,
+    ): UploadResult {
+        if (enqueueOnFailure && queued.add(accountId)) enqueue(accountId)
         return UploadResult.FAILED
     }
 }
