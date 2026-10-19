@@ -123,7 +123,18 @@ Everything Readium's EPUB preferences support, at least:
   Aurora, Ocean, Mist, …) using their exact `fg`/`bg`/`link` colours. Dark,
   light and a warm "paper" look are the ones the author named. An option to
   follow the system light/dark is the builder's call.
-- Font family (Readium's set; publisher default), font size, page margins,
+- **Custom fonts** (author: Grimmory + file import):
+  - Fonts the user uploaded to Grimmory (`GET /api/v1/custom-fonts`, file at
+    `GET /api/v1/custom-fonts/{fontId}/file`) appear in the font list
+    automatically; downloaded once per account, kept on the phone so they
+    work offline.
+  - "Add font…" imports a `.ttf` / `.otf` from the phone (system file picker);
+    stored in app storage, available to every account. Delete from the list.
+  - Builder, first: confirm how the Readium version used loads a font face
+    from app storage (not only from APK assets) — e.g. serving the file
+    through the navigator's resource server or a font-family declaration
+    with a file URL. If it can't, stop and report before building the UI.
+- Font family (Readium's set + custom fonts; publisher default), font size, page margins,
   line height, letter spacing, word spacing, text alignment, hyphenation,
   paginated vs scroll, publisher styles on/off.
 - **Footnotes**: popup over the page vs follow the link normally (author).
