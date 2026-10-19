@@ -106,7 +106,6 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.androidx.work.testing)
-    testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)
     testImplementation(libs.androidx.test.espresso.core)
     testRuntimeOnly(libs.junit.vintage.engine)
