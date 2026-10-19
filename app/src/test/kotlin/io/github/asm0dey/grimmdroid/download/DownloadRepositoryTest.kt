@@ -26,6 +26,7 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import io.github.asm0dey.grimmdroid.api.TokenSource
 import io.github.asm0dey.grimmdroid.api.Tokens
 import io.github.asm0dey.grimmdroid.api.authedClient
+import io.github.asm0dey.grimmdroid.catalog.BookEntity
 import io.github.asm0dey.grimmdroid.catalog.CatalogDb
 import io.github.asm0dey.grimmdroid.catalog.DownloadState
 import io.ktor.client.engine.mock.MockEngine
@@ -87,6 +88,7 @@ class DownloadRepositoryTest {
     fun setUp() {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(ctx, CatalogDb::class.java).allowMainThreadQueries().build()
+        WorkManagerTestInitHelper.initializeTestWorkManager(ctx)
         filesDir = Files.createTempDirectory("dl").toFile()
     }
 
@@ -250,10 +252,105 @@ class DownloadRepositoryTest {
         runBlocking {
             val repo = repo { respond("book", HttpStatusCode.OK) }
             val file = repo.download(ACCOUNT, BOOK, 70, isPrimary = true) {}
-            repo.delete(ACCOUNT, BOOK)
+            repo.delete(ApplicationProvider.getApplicationContext(), ACCOUNT, BOOK)
             assertFalse(file.exists())
             assertNull(repo.observe(ACCOUNT, BOOK).first())
         }
+
+    @Test
+    fun deleteStopsARunningDownloadFirst() =
+        runBlocking {
+            val started = CompletableDeferred<Unit>()
+            val repo = repo { respond(stalledBody(), HttpStatusCode.OK, epubHeaders) }
+            val job = launch(Dispatchers.IO) { repo.download(ACCOUNT, BOOK, 70, isPrimary = true) { started.complete(Unit) } }
+            started.await()
+            repo.delete(ApplicationProvider.getApplicationContext(), ACCOUNT, BOOK)
+            assertTrue(job.isCancelled)
+            assertFalse(bookDir().exists())
+            assertNull(repo.observe(ACCOUNT, BOOK).first())
+        }
+
+    @Test
+    fun serverPrimaryFileNameCannotEscapeTheBookDir() =
+        runBlocking {
+            db.catalogDao().upsertBooks(
+                listOf(
+                    BookEntity(
+                        ACCOUNT,
+                        BOOK,
+                        "T",
+                        "A",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        70,
+                        "EPUB",
+                        "../../../x.epub",
+                        null,
+                        null,
+                        false,
+                        1,
+                    ),
+                ),
+            )
+            val file = repo { respond("book", HttpStatusCode.OK) }.download(ACCOUNT, BOOK, 70, isPrimary = true) {}
+            assertEquals(bookDir().canonicalFile, file.canonicalFile.parentFile)
+            assertEquals("___x.epub", file.name)
+            assertEquals("___x.epub", repo { respondError(HttpStatusCode.NotFound) }.observe(ACCOUNT, BOOK).first()!!.fileName)
+        }
+
+    @Test
+    fun failedReDownloadKeepsTheEarlierCopy() =
+        runBlocking {
+            val old =
+                repo {
+                    respond(
+                        "old",
+                        HttpStatusCode.OK,
+                        headersOf(HttpHeaders.ContentDisposition, "attachment; filename*=UTF-8''Moby%20Dick.epub"),
+                    )
+                }.download(ACCOUNT, BOOK, 70, isPrimary = true) {}
+            val repo =
+                repo {
+                    val body =
+                        CoroutineScope(Dispatchers.IO)
+                            .writer {
+                                channel.writeFully(ByteArray(1000))
+                                channel.flush()
+                                throw IOException("connection reset")
+                            }.channel
+                    respond(body, HttpStatusCode.OK, epubHeaders)
+                }
+            try {
+                repo.download(ACCOUNT, BOOK, 70, isPrimary = true) {}
+                fail("expected IOException")
+            } catch (e: IOException) {
+                // expected
+            }
+            assertEquals("old", old.readText())
+            assertEquals(listOf(old.name), bookDir().list()!!.toList())
+            val row = repo.observe(ACCOUNT, BOOK).first()!!
+            assertEquals(DownloadState.DONE, row.state)
+            assertEquals(old.path, row.path)
+        }
+
+    @Test
+    fun errorCodesTellPermissionApartFromNetwork() {
+        assertEquals("no_permission", downloadErrorCode(NoDownloadPermission()))
+        assertEquals("network", downloadErrorCode(IOException("reset")))
+        assertEquals("other", downloadErrorCode(IllegalStateException()))
+    }
+
+    private fun stalledBody() =
+        CoroutineScope(Dispatchers.IO)
+            .writer {
+                channel.writeFully(ByteArray(1000))
+                channel.flush()
+                awaitCancellation()
+            }.channel
 
     @Test
     fun enqueueIsUniquePerBookAndCancelRemovesIt() {

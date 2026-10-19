@@ -24,7 +24,9 @@ import android.os.Build
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import kotlinx.coroutines.CancellationException
+import java.io.IOException
 
 /** Implemented by the Application (Task 10), like `SyncHost`, so the worker reaches the app's single [DownloadRepository]. */
 interface DownloadHost {
@@ -45,9 +47,13 @@ class DownloadWorker(
         if (accountId < 0 || bookId < 0) return Result.failure()
         val repo = (applicationContext as DownloadHost).downloadRepository
         val title = repo.title(accountId, bookId) ?: "book-$bookId"
-        setForeground(foregroundInfo(title, -1f))
         val nm = applicationContext.getSystemService(NotificationManager::class.java)
         return try {
+            try {
+                setForeground(foregroundInfo(title, -1f))
+            } catch (e: IllegalStateException) {
+                // ForegroundServiceStartNotAllowedException (API 31+, started from the background): download without it.
+            }
             repo.download(
                 accountId,
                 bookId,
@@ -60,7 +66,7 @@ class DownloadWorker(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Result.failure() // the row is FAILED; the user retries from the UI
+            Result.failure(workDataOf(KEY_ERROR to downloadErrorCode(e))) // the row is FAILED; the user retries from the UI
         }
     }
 
@@ -83,5 +89,18 @@ class DownloadWorker(
         const val KEY_BOOK_ID = "bookId"
         const val KEY_FILE_ID = "fileId"
         const val KEY_PRIMARY = "isPrimary"
+
+        /** Output of a failed run: [ERROR_NO_PERMISSION], [ERROR_NETWORK] or [ERROR_OTHER]. */
+        const val KEY_ERROR = "error"
+        const val ERROR_NO_PERMISSION = "no_permission"
+        const val ERROR_NETWORK = "network"
+        const val ERROR_OTHER = "other"
     }
 }
+
+internal fun downloadErrorCode(e: Throwable): String =
+    when (e) {
+        is NoDownloadPermission -> DownloadWorker.ERROR_NO_PERMISSION
+        is IOException -> DownloadWorker.ERROR_NETWORK
+        else -> DownloadWorker.ERROR_OTHER
+    }

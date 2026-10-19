@@ -40,6 +40,11 @@ class FileNamesSpec :
             safeFileName("...", "book-12.epub") shouldBe "book-12.epub"
         }
 
+        test("the fallback is sanitised too, with a fixed last resort") {
+            safeFileName("", "../../../x.epub") shouldBe "___x.epub"
+            safeFileName("..", "..") shouldBe "book"
+        }
+
         test("control chars and reserved chars are removed") {
             safeFileName("a\u0001b:c*d?e\"f<g>h|i\\j.epub", "x") shouldBe "abcdefghi_j.epub"
         }

@@ -34,11 +34,13 @@ fun parseContentDisposition(header: String?): String? {
     return FILENAME.find(header)?.let { it.groupValues[1].ifEmpty { it.groupValues[2] } }
 }
 
-/** A single path component that can't escape the book directory; [fallback] when nothing usable is left. */
+/** A single path component that can't escape the book directory; the sanitised [fallback] (or "book") when nothing usable is left. */
 fun safeFileName(
     raw: String,
     fallback: String,
-): String {
+): String = sanitise(raw) ?: sanitise(fallback) ?: "book"
+
+private fun sanitise(raw: String): String? {
     val name =
         raw
             .replace('/', '_')
@@ -46,7 +48,7 @@ fun safeFileName(
             .replace(UNSAFE, "") // before "..", so dropping a char can't splice a new ".."
             .replace("..", "")
             .trim()
-    if (name.trim('.').isBlank()) return fallback
+    if (name.trim('.').isBlank()) return null
     if (name.encodeToByteArray().size <= MAX_BYTES) return name
     val dot = name.lastIndexOf('.')
     val ext = if (dot > 0 && name.length - dot <= 10) name.substring(dot) else ""

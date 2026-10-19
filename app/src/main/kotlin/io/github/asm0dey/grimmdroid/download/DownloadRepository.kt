@@ -38,7 +38,10 @@ import io.ktor.http.isSuccess
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -46,6 +49,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
 
 /** The server answered 403: the account lacks the canDownload permission. */
 class NoDownloadPermission : IOException("Your account can't download books")
@@ -74,7 +78,13 @@ class DownloadRepository(
         bookId: Long,
     ) = File(filesDir, "books/$accountId/$bookId")
 
-    /** [onProgress] gets 0..1, or -1 when the server sends no Content-Length. Throws after marking the row FAILED. */
+    // In-process jobs of running downloads, so delete() can stop one and wait for its cleanup before removing files.
+    private val active = ConcurrentHashMap<Pair<Long, Long>, Job>()
+
+    /**
+     * [onProgress] gets 0..1, or -1 when the server sends no Content-Length. On failure the row is marked FAILED and the
+     * error rethrown; an earlier completed copy is only replaced once the new file has been fully written.
+     */
     suspend fun download(
         accountId: Long,
         bookId: Long,
@@ -84,22 +94,27 @@ class DownloadRepository(
     ): File {
         val url =
             if (isPrimary) "api/v1/books/$bookId/download" else "api/v1/books/$bookId/files/${requireNotNull(fileId)}/download"
-        val fallback = (if (isPrimary) dao.book(accountId, bookId).first()?.primaryFileName else null) ?: "book-$bookId"
+        // primaryFileName comes from the server: sanitised like any other name.
+        val fallback = safeFileName((if (isPrimary) dao.book(accountId, bookId).first()?.primaryFileName else null) ?: "", "book-$bookId")
         val dir = bookDir(accountId, bookId)
+        val previous = dao.download(accountId, bookId).first()?.takeIf { it.state == DownloadState.DONE }
         var row = DownloadEntity(accountId, bookId, fileId ?: 0, fallback, "", 0, DownloadState.RUNNING, 0f)
+        val key = accountId to bookId
+        val job = currentCoroutineContext()[Job]?.also { active[key] = it }
         dao.deleteBookDownloads(accountId, bookId)
         dao.upsertDownload(row)
         var part: File? = null
         try {
             val file =
                 withContext(Dispatchers.IO) {
-                    dir.deleteRecursively()
-                    if (!dir.mkdirs()) throw IOException("Cannot create $dir")
+                    if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Cannot create $dir")
                     http(accountId).prepareGet(url) { expectSuccess = false }.execute { response ->
                         if (response.status == HttpStatusCode.Forbidden) throw NoDownloadPermission()
                         if (!response.status.isSuccess()) throw IOException("Download failed: HTTP ${response.status}")
                         val name = safeFileName(parseContentDisposition(response.headers[HttpHeaders.ContentDisposition]) ?: "", fallback)
                         val target = File(dir, name)
+                        // Defence in depth: safeFileName already yields one path component.
+                        if (target.canonicalFile.parentFile != dir.canonicalFile) throw IOException("Unsafe file name")
                         val tmp = File(dir, "$name.part").also { part = it }
                         val total = response.contentLength() ?: -1L
                         val channel = response.bodyAsChannel()
@@ -123,6 +138,8 @@ class DownloadRepository(
                         }
                         if (total >= 0 && received != total) throw IOException("Connection closed after $received of $total bytes")
                         Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                        // Only now drop the earlier copy (possibly under another name) and any stale .part files.
+                        dir.listFiles()?.filter { it != target }?.forEach { it.deleteRecursively() }
                         row = row.copy(fileName = name, path = target.path, sizeBytes = received, state = DownloadState.DONE, progress = 1f)
                         if (total < 0) onProgress(1f)
                         target
@@ -131,25 +148,38 @@ class DownloadRepository(
             dao.upsertDownload(row)
             return file
         } catch (e: CancellationException) {
-            // Cancelled: forget the download entirely so the UI offers Download again.
+            // Cancelled: back to the earlier copy if there is one, else forget the download so the UI offers Download again.
             withContext(NonCancellable) {
                 part?.delete()
                 dao.deleteBookDownloads(accountId, bookId)
+                previous?.takeIf { File(it.path).exists() }?.let { dao.upsertDownload(it) }
             }
             throw e
         } catch (e: Exception) {
             withContext(NonCancellable) {
                 part?.delete()
-                dao.upsertDownload(row.copy(state = DownloadState.FAILED))
+                val kept = previous?.takeIf { File(it.path).exists() }
+                if (kept != null) {
+                    dao.deleteBookDownloads(accountId, bookId)
+                    dao.upsertDownload(kept)
+                } else {
+                    dao.upsertDownload(row.copy(state = DownloadState.FAILED))
+                }
             }
             throw e
+        } finally {
+            if (job != null) active.remove(key, job)
         }
     }
 
+    /** Stops a queued or running download of the book first, then removes its files and row. */
     suspend fun delete(
+        context: Context,
         accountId: Long,
         bookId: Long,
     ) {
+        cancel(context, accountId, bookId)
+        active[accountId to bookId]?.cancelAndJoin()
         withContext(Dispatchers.IO) { bookDir(accountId, bookId).deleteRecursively() }
         dao.deleteBookDownloads(accountId, bookId)
     }
