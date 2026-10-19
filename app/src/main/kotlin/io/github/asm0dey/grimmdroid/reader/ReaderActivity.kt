@@ -17,8 +17,10 @@
  */
 package io.github.asm0dey.grimmdroid.reader
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -30,12 +32,16 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
+import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
@@ -53,19 +59,20 @@ import io.github.asm0dey.grimmdroid.catalog.DownloadState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import org.readium.r2.navigator.HyperlinkNavigator
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.navigator.input.InputListener
 import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.util.DirectionalNavigationAdapter
+import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.publication.html.cssSelector
 import org.readium.r2.shared.publication.services.locateProgression
+import org.readium.r2.shared.util.AbsoluteUrl
 import java.io.File
-
-// Task 9's reader setting; off by default.
-private const val KEEP_STATUS_BAR = false
 
 class ReaderActivity : FragmentActivity() {
     private val vm: ReaderViewModel by viewModels {
@@ -103,6 +110,35 @@ class ReaderActivity : FragmentActivity() {
         }
     }
 
+    private val settingsStore get() = (application as GrimmdroidApp).container.readerSettings
+    private var settings by mutableStateOf(ReaderSettings())
+    private var settingsOpen by mutableStateOf(false)
+    private var footnote by mutableStateOf<String?>(null)
+    private lateinit var navigatorContainer: FragmentContainerView
+
+    private val systemDark get() =
+        resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+
+    private val navigatorListener =
+        object : EpubNavigatorFragment.Listener {
+            override fun shouldFollowInternalLink(
+                link: Link,
+                context: HyperlinkNavigator.LinkContext?,
+            ): Boolean {
+                if (!settings.footnotePopup || context !is HyperlinkNavigator.FootnoteContext) return true
+                footnote = context.noteContent
+                return false
+            }
+
+            override fun onExternalLinkActivated(url: AbsoluteUrl) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, url.toString().toUri()))
+                } catch (_: ActivityNotFoundException) {
+                    // No app to open the link with: the tap does nothing.
+                }
+            }
+        }
+
     private var chromeVisible by mutableStateOf(false)
     private var locator by mutableStateOf<Locator?>(null)
     private var publication by mutableStateOf<Publication?>(null)
@@ -120,6 +156,10 @@ class ReaderActivity : FragmentActivity() {
                 .takeIf { it.isCompleted && vm.initialLocator.isCompleted }
                 ?.getCompleted()
                 ?.getOrNull()
+        if (open != null) {
+            // Only after the book opened once in this process, so the DataStore already holds the settings in memory.
+            settings = runBlocking { settingsStore.settings.first() }
+        }
         supportFragmentManager.fragmentFactory =
             open?.let { navigatorFactory(it, vm.navigatorStart(it)) } ?: EpubNavigatorFragment.createDummyFactory()
         supportFragmentManager.registerFragmentLifecycleCallbacks(
@@ -143,13 +183,32 @@ class ReaderActivity : FragmentActivity() {
             // The navigator pads its text by the cutout itself.
             window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
+        navigatorContainer = FragmentContainerView(this).apply { id = R.id.reader_navigator }
+        ViewCompat.setOnApplyWindowInsetsListener(navigatorContainer) { v, insets ->
+            // The navigator pads its text by the cutout; a kept status bar needs the rest of its height too.
+            val top =
+                if (!settings.keepSystemStatusBar) {
+                    0
+                } else {
+                    insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top -
+                        insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top
+                }
+            v.updatePadding(top = top.coerceAtLeast(0))
+            insets
+        }
         setContentView(
             FrameLayout(this).apply {
-                addView(FragmentContainerView(context).apply { id = R.id.reader_navigator })
+                addView(navigatorContainer)
                 addView(ComposeView(context).apply { setContent { Chrome() } })
             },
         )
-        showSystemBars(false)
+        applySettings()
+        lifecycleScope.launch {
+            settingsStore.settings.collect {
+                settings = it
+                applySettings()
+            }
+        }
         lifecycleScope.launch {
             val madeCurrent = getString(R.string.position_made_current)
             vm.madeCurrent.collect { Toast.makeText(this@ReaderActivity, madeCurrent, Toast.LENGTH_SHORT).show() }
@@ -163,6 +222,7 @@ class ReaderActivity : FragmentActivity() {
                     return@launch finish()
                 }
             vm.initialLocator.await() // navigatorStart needs the saved place
+            settings = settingsStore.settings.first()
             // A commit after onSaveInstanceState throws: wait until the activity is visible again.
             withStarted {
                 publication = pub
@@ -175,7 +235,11 @@ class ReaderActivity : FragmentActivity() {
     private fun navigatorFactory(
         pub: Publication,
         initial: Locator?,
-    ) = EpubNavigatorFactory(pub).createFragmentFactory(initialLocator = initial)
+    ) = EpubNavigatorFactory(pub).createFragmentFactory(
+        initialLocator = initial,
+        initialPreferences = settings.toEpubPreferences(systemDark),
+        listener = navigatorListener,
+    )
 
     private val navigator get() = supportFragmentManager.findFragmentById(R.id.reader_navigator) as? EpubNavigatorFragment
 
@@ -211,6 +275,18 @@ class ReaderActivity : FragmentActivity() {
         return y < edges.top || y > decor.height - edges.bottom
     }
 
+    private fun applySettings() {
+        navigator?.submitPreferences(settings.toEpubPreferences(systemDark))
+        // Behind a kept status bar, and behind the page while it loads.
+        navigatorContainer.setBackgroundColor(settings.palette(systemDark).bg.toArgb())
+        ViewCompat.requestApplyInsets(navigatorContainer)
+        showSystemBars(chromeVisible)
+    }
+
+    private fun updateSettings(f: (ReaderSettings) -> ReaderSettings) {
+        lifecycleScope.launch { settingsStore.update(f) }
+    }
+
     private fun toggleChrome() {
         chromeVisible = !chromeVisible
         showSystemBars(chromeVisible)
@@ -219,13 +295,22 @@ class ReaderActivity : FragmentActivity() {
     private fun showSystemBars(show: Boolean) {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        // Dark icons over the light Default theme; Task 9 derives this from the reader theme.
-        controller.isAppearanceLightStatusBars = true
-        controller.isAppearanceLightNavigationBars = true
+        val light = !settings.isDark(systemDark)
+        controller.isAppearanceLightStatusBars = light
+        controller.isAppearanceLightNavigationBars = light
         when {
-            show -> controller.show(WindowInsetsCompat.Type.systemBars())
-            KEEP_STATUS_BAR -> controller.hide(WindowInsetsCompat.Type.navigationBars())
-            else -> controller.hide(WindowInsetsCompat.Type.systemBars())
+            show -> {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+
+            settings.keepSystemStatusBar -> {
+                controller.show(WindowInsetsCompat.Type.statusBars())
+                controller.hide(WindowInsetsCompat.Type.navigationBars())
+            }
+
+            else -> {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            }
         }
     }
 
@@ -233,22 +318,40 @@ class ReaderActivity : FragmentActivity() {
     private fun Chrome() {
         val jump by vm.jump.collectAsState()
         val pub = publication
-        ReaderChrome(
-            visible = chromeVisible,
-            title = pub?.metadata?.title.orEmpty(),
-            locator = locator,
-            toc = androidx.compose.runtime.remember(pub) { pub?.tableOfContents?.flattenToc().orEmpty() },
-            jump = jump,
-            onBack = ::finish,
-            onSyncNow = vm::syncNow,
-            onMakeCurrent = vm::makeCurrent,
-            onJump = vm::acceptJump,
-            onDismissJump = vm::dismissJump,
-            onSeek = { progression ->
-                lifecycleScope.launch { pub?.locateProgression(progression)?.let { navigator?.go(it) } }
-            },
-            onTocEntry = { navigator?.go(it) },
-        )
+        val s = settings
+        ReaderColors(s.palette(systemDark), s.isDark(systemDark)) {
+            ReaderChrome(
+                visible = chromeVisible,
+                title = pub?.metadata?.title.orEmpty(),
+                locator = locator,
+                toc = remember(pub) { pub?.tableOfContents?.flattenToc().orEmpty() },
+                jump = jump,
+                onBack = ::finish,
+                onSettings = { settingsOpen = true },
+                onSyncNow = vm::syncNow,
+                onMakeCurrent = vm::makeCurrent,
+                onJump = vm::acceptJump,
+                onDismissJump = vm::dismissJump,
+                onSeek = { progression ->
+                    lifecycleScope.launch { pub?.locateProgression(progression)?.let { navigator?.go(it) } }
+                },
+                onTocEntry = { navigator?.go(it) },
+            )
+            if (settingsOpen && pub != null) {
+                val factory = remember(pub) { EpubNavigatorFactory(pub) }
+                ReaderSettingsSheet(
+                    settings = s,
+                    systemDark = systemDark,
+                    editor = factory::createPreferencesEditor,
+                    onUpdate = ::updateSettings,
+                    onEpub = { edit ->
+                        updateSettings { it.copy(epub = factory.createPreferencesEditor(it.epub).apply(edit).preferences) }
+                    },
+                    onDismiss = { settingsOpen = false },
+                )
+            }
+            footnote?.let { FootnotePopup(it) { footnote = null } }
+        }
     }
 
     override fun onStop() {

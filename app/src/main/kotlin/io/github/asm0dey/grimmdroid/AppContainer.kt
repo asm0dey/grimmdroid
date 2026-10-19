@@ -44,6 +44,7 @@ import io.github.asm0dey.grimmdroid.export.Exporter
 import io.github.asm0dey.grimmdroid.export.FolderExport
 import io.github.asm0dey.grimmdroid.net.Connectivity
 import io.github.asm0dey.grimmdroid.reader.PositionSync
+import io.github.asm0dey.grimmdroid.reader.ReaderSettingsStore
 import io.github.asm0dey.grimmdroid.reader.enqueuePositionUpload
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
@@ -86,6 +87,7 @@ class AppContainer(
 
     // One DataStore per file, in the default files/datastore/ dir that the backup rules exclude.
     val settings = SettingsStore(PreferenceDataStoreFactory.create { app.preferencesDataStoreFile("settings") })
+    val readerSettings = ReaderSettingsStore(PreferenceDataStoreFactory.create { app.preferencesDataStoreFile("reader") })
     val pendingOidc = PendingOidcStore(PreferenceDataStoreFactory.create { app.preferencesDataStoreFile("oidc") })
 
     val accounts = AccountRepository(db.accountDao(), KeystoreTokenCipher(), settings)

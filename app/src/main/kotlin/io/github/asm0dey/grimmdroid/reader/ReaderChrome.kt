@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,11 +42,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,7 +58,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,22 +69,61 @@ import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import kotlin.math.roundToInt
 
-// Task 9 supplies the reader theme's palette; until then the Default light theme.
-private val ReaderFg = Color(0xFF000000)
-private val ReaderBg = Color(0xFFFFFFFF)
-private val ReaderLink = Color(0xFF0066CC)
-
-private val readerColors =
-    lightColorScheme(
-        primary = ReaderLink,
-        onPrimary = ReaderBg,
-        background = ReaderBg,
-        onBackground = ReaderFg,
-        surface = ReaderBg,
-        onSurface = ReaderFg,
-        surfaceContainer = ReaderBg,
-        onSurfaceVariant = ReaderFg,
+/** The reader palette as a Material colour scheme, so every bar, sheet and dialog of the reader draws in it, not the app theme. */
+private fun Palette.colorScheme(dark: Boolean): ColorScheme {
+    val muted = fg.copy(alpha = 0.12f).compositeOver(bg)
+    val outline = fg.copy(alpha = 0.5f).compositeOver(bg)
+    return (if (dark) darkColorScheme() else lightColorScheme()).copy(
+        primary = link,
+        onPrimary = bg,
+        primaryContainer = muted,
+        onPrimaryContainer = fg,
+        inversePrimary = bg,
+        secondary = link,
+        onSecondary = bg,
+        secondaryContainer = muted,
+        onSecondaryContainer = fg,
+        tertiary = link,
+        onTertiary = bg,
+        tertiaryContainer = muted,
+        onTertiaryContainer = fg,
+        background = bg,
+        onBackground = fg,
+        surface = bg,
+        onSurface = fg,
+        surfaceVariant = muted,
+        onSurfaceVariant = fg,
+        surfaceTint = fg,
+        inverseSurface = fg,
+        inverseOnSurface = bg,
+        outline = outline,
+        outlineVariant = muted,
+        surfaceBright = bg,
+        surfaceDim = bg,
+        surfaceContainerLowest = bg,
+        surfaceContainerLow = bg,
+        surfaceContainer = bg,
+        surfaceContainerHigh = bg,
+        surfaceContainerHighest = muted,
     )
+}
+
+@Composable
+fun ReaderColors(
+    palette: Palette,
+    dark: Boolean,
+    content: @Composable () -> Unit,
+) {
+    MaterialTheme(colorScheme = remember(palette, dark) { palette.colorScheme(dark) }, content = content)
+}
+
+/** A sheet's own window sets the system bar icons: match them to the reader palette, not the app theme. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun readerSheetProperties(): ModalBottomSheetProperties {
+    val light = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    return ModalBottomSheetProperties(isAppearanceLightStatusBars = light, isAppearanceLightNavigationBars = light)
+}
 
 /** One TOC row: [depth] levels of nesting. */
 data class TocEntry(
@@ -92,7 +135,7 @@ fun List<Link>.flattenToc(depth: Int = 0): List<TocEntry> = flatMap { listOf(Toc
 
 /**
  * The reader's overlay: top bar and bottom progress while [visible], the jump bar whenever there is an offer.
- * Draws nothing over the page outside its bars, so taps there reach the navigator.
+ * Draws nothing over the page outside its bars, so taps there reach the navigator. Call it inside [ReaderColors].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,6 +146,7 @@ fun ReaderChrome(
     toc: List<TocEntry>,
     jump: JumpOffer?,
     onBack: () -> Unit,
+    onSettings: () -> Unit,
     onSyncNow: () -> Unit,
     onMakeCurrent: () -> Unit,
     onJump: () -> Unit,
@@ -110,34 +154,32 @@ fun ReaderChrome(
     onSeek: (Double) -> Unit,
     onTocEntry: (Link) -> Unit,
 ) {
-    MaterialTheme(colorScheme = readerColors) {
-        var tocOpen by remember { mutableStateOf(false) }
-        Box(Modifier.fillMaxSize()) {
-            AnimatedVisibility(visible, Modifier.align(Alignment.TopCenter), slideInVertically { -it }, slideOutVertically { -it }) {
-                TopBar(title, onBack, { tocOpen = true }, onSyncNow, onMakeCurrent)
-            }
-            Column(Modifier.align(Alignment.BottomCenter)) {
-                if (jump != null) JumpBar(jump, onJump, onDismissJump)
-                AnimatedVisibility(visible, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
-                    BottomBar(locator, onSeek)
-                }
+    var tocOpen by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        AnimatedVisibility(visible, Modifier.align(Alignment.TopCenter), slideInVertically { -it }, slideOutVertically { -it }) {
+            TopBar(title, onBack, { tocOpen = true }, onSettings, onSyncNow, onMakeCurrent)
+        }
+        Column(Modifier.align(Alignment.BottomCenter)) {
+            if (jump != null) JumpBar(jump, onJump, onDismissJump)
+            AnimatedVisibility(visible, enter = slideInVertically { it }, exit = slideOutVertically { it }) {
+                BottomBar(locator, onSeek)
             }
         }
-        if (tocOpen) {
-            ModalBottomSheet(onDismissRequest = { tocOpen = false }) {
-                Text(stringResource(R.string.table_of_contents), Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
-                LazyColumn {
-                    items(toc) { entry ->
-                        Text(
-                            entry.link.title ?: entry.link.href.toString(),
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    tocOpen = false
-                                    onTocEntry(entry.link)
-                                }.padding(start = 16.dp + 16.dp * entry.depth, end = 16.dp, top = 12.dp, bottom = 12.dp),
-                        )
-                    }
+    }
+    if (tocOpen) {
+        ModalBottomSheet(onDismissRequest = { tocOpen = false }, properties = readerSheetProperties()) {
+            Text(stringResource(R.string.table_of_contents), Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
+            LazyColumn {
+                items(toc) { entry ->
+                    Text(
+                        entry.link.title ?: entry.link.href.toString(),
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                tocOpen = false
+                                onTocEntry(entry.link)
+                            }.padding(start = 16.dp + 16.dp * entry.depth, end = 16.dp, top = 12.dp, bottom = 12.dp),
+                    )
                 }
             }
         }
@@ -150,6 +192,7 @@ private fun TopBar(
     title: String,
     onBack: () -> Unit,
     onToc: () -> Unit,
+    onSettings: () -> Unit,
     onSyncNow: () -> Unit,
     onMakeCurrent: () -> Unit,
 ) {
@@ -161,6 +204,7 @@ private fun TopBar(
         },
         actions = {
             IconButton(onClick = onToc) { Icon(painterResource(R.drawable.ic_view_list), stringResource(R.string.table_of_contents)) }
+            IconButton(onClick = onSettings) { Icon(painterResource(R.drawable.ic_settings), stringResource(R.string.reader_settings)) }
             IconButton(onClick = { menu = true }) {
                 Icon(painterResource(R.drawable.ic_more_vert), stringResource(R.string.more_options))
             }
