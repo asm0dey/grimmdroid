@@ -26,6 +26,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.withStarted
 import io.github.asm0dey.grimmdroid.R
 import kotlinx.coroutines.launch
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
@@ -52,8 +53,11 @@ class ReaderActivity : FragmentActivity() {
                     return@launch finish()
                 }
             publication = pub
-            supportFragmentManager.fragmentFactory = EpubNavigatorFactory(pub).createFragmentFactory(initialLocator = null)
-            supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
+            // A commit after onSaveInstanceState throws: wait until the activity is visible again.
+            withStarted {
+                supportFragmentManager.fragmentFactory = EpubNavigatorFactory(pub).createFragmentFactory(initialLocator = null)
+                supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
+            }
         }
     }
 
