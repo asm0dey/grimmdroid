@@ -32,14 +32,11 @@ val Cfi.spineIndex: Int get() = spineStep / 2 - 1
 private val ASSERTION = Regex("\\[[^\\]]*]")
 private val STEPS = Regex("(/\\d+)+")
 
-private fun steps(s: String): List<Int>? =
-    if (s.isEmpty()) {
-        emptyList()
-    } else if (STEPS.matches(s)) {
-        s.split('/').drop(1).map { it.toInt() }
-    } else {
-        null
-    }
+private fun steps(s: String): List<Int>? {
+    if (s.isEmpty()) return emptyList()
+    if (!STEPS.matches(s)) return null
+    return s.split('/').drop(1).map { it.toIntOrNull() ?: return null }
+}
 
 /** Returns null for anything unparseable; assertions, spatial/temporal suffixes and range ends are dropped. */
 fun parseCfi(s: String): Cfi? {

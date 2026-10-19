@@ -34,6 +34,9 @@ class CfiSpec :
         test("range uses parent plus start") {
             parseCfi("epubcfi(/6/2!/4/2,/2/1:0,/4/1:10)") shouldBe Cfi(2, listOf(4, 2, 2, 1), 0)
         }
+        test("foliate-js range") {
+            parseCfi("epubcfi(/6/8!/4/2,/2/1:0,/40/1:120)") shouldBe Cfi(8, listOf(4, 2, 2, 1), 0)
+        }
         test("ignores id assertions") {
             parseCfi("epubcfi(/6/4[chap01]!/4[body01]/10[para05]:3)") shouldBe Cfi(4, listOf(4, 10), 3)
         }
@@ -49,6 +52,8 @@ class CfiSpec :
             parseCfi("epubcfi(/6/x)") shouldBe null
             parseCfi("/6/4") shouldBe null
             parseCfi("epubcfi(/4/2!/4)") shouldBe null
+            parseCfi("epubcfi(/6/99999999999)") shouldBe null
+            parseCfi("epubcfi(/6/4!/4:99999999999)") shouldBe null
         }
         test("spineIndex") {
             Cfi(4, emptyList(), null).spineIndex shouldBe 1
