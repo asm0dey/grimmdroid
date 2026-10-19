@@ -44,6 +44,9 @@ import io.github.asm0dey.grimmdroid.net.Connectivity
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import okio.Path.Companion.toOkioPath
 import java.util.concurrent.ConcurrentHashMap
@@ -54,6 +57,9 @@ class AppContainer(
 ) {
     private val app = context.applicationContext
     val appContext: Context get() = app
+
+    /** Outlives every screen: for work a navigation away must not cancel (account removal). */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val db: CatalogDb = Room.databaseBuilder(app, CatalogDb::class.java, "catalog.db").build()
 

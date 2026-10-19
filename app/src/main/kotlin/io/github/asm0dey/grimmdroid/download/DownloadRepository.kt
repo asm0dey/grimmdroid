@@ -24,6 +24,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.await
 import androidx.work.workDataOf
 import io.github.asm0dey.grimmdroid.catalog.CatalogDao
 import io.github.asm0dey.grimmdroid.catalog.DownloadEntity
@@ -75,10 +76,12 @@ class DownloadRepository(
         bookId: Long,
     ): String? = dao.book(accountId, bookId).first()?.title
 
+    private fun accountDir(accountId: Long) = File(filesDir, "books/$accountId")
+
     private fun bookDir(
         accountId: Long,
         bookId: Long,
-    ) = File(filesDir, "books/$accountId/$bookId")
+    ) = File(accountDir(accountId), "$bookId")
 
     // In-process jobs of running downloads, so delete() can stop one and wait for its cleanup before removing files.
     private val active = ConcurrentHashMap<Pair<Long, Long>, Job>()
@@ -192,9 +195,9 @@ class DownloadRepository(
         accountId: Long,
         deleteFiles: Boolean,
     ) {
-        WorkManager.getInstance(context).cancelAllWorkByTag(accountTag(accountId))
+        WorkManager.getInstance(context).cancelAllWorkByTag(accountTag(accountId)).await()
         active.filterKeys { it.first == accountId }.values.forEach { it.cancelAndJoin() }
-        if (deleteFiles) withContext(Dispatchers.IO) { File(filesDir, "books/$accountId").deleteRecursively() }
+        if (deleteFiles) withContext(Dispatchers.IO) { accountDir(accountId).deleteRecursively() }
     }
 
     fun enqueue(

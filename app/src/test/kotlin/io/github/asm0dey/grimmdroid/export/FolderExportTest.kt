@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -75,6 +76,17 @@ class FolderExportTest {
         runBlocking {
             settings.setFolderUri(1, Uri.parse("content://tree/1"))
             assertEquals(FolderResult.FolderLost, folderExport.save(1, book))
+        }
+
+    @Test
+    fun forgetReleasesTheGrantAndClearsTheFolder() =
+        runBlocking {
+            val uri = Uri.parse("content://tree/1")
+            folderExport.setFolder(1, uri)
+            assertTrue(context.contentResolver.persistedUriPermissions.any { it.uri == uri })
+            folderExport.forget(1)
+            assertFalse(context.contentResolver.persistedUriPermissions.any { it.uri == uri })
+            assertEquals(null, settings.folderUri(1).first())
         }
 
     @Test

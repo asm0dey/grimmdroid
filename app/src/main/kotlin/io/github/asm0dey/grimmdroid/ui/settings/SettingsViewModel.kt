@@ -25,6 +25,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.work.WorkManager
+import androidx.work.await
 import io.github.asm0dey.grimmdroid.AppContainer
 import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.account.AccountRepository
@@ -34,9 +35,12 @@ import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import io.github.asm0dey.grimmdroid.export.FolderExport
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
+import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import io.github.asm0dey.grimmdroid.sync.scheduleSync
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -58,10 +62,13 @@ class SettingsViewModel(
     private val settings: SettingsStore,
     private val catalog: CatalogDao,
     private val downloads: DownloadRepository,
+    private val sync: LibrarySync,
     private val folderExport: FolderExport,
     private val dropClient: (Long) -> Unit,
     private val coverCacheSize: () -> Long,
     private val clearCoverCache: () -> Unit,
+    /** Runs sign-out: removal pops Settings (account switch or Onboarding reset), which would cancel viewModelScope mid-way. */
+    private val appScope: CoroutineScope,
 ) : ViewModel() {
     private fun <T> Flow<T>.state(initial: T) = stateIn(viewModelScope, SharingStarted.Eagerly, initial)
 
@@ -127,9 +134,7 @@ class SettingsViewModel(
     fun signOut(
         accountId: Long,
         removeAccount: Boolean,
-    ) {
-        viewModelScope.launch { signOutNow(accountId, removeAccount) }
-    }
+    ): Job = appScope.launch { signOutNow(accountId, removeAccount) }
 
     /**
      * Keep: forget the tokens only; catalogue and downloads stay for a later sign-in. Remove: stop its work, delete its
@@ -140,12 +145,15 @@ class SettingsViewModel(
         removeAccount: Boolean,
     ) {
         val wm = WorkManager.getInstance(app)
-        wm.cancelUniqueWork("sync-$accountId")
-        wm.cancelUniqueWork("sync-$accountId-now")
+        wm.cancelUniqueWork("sync-$accountId").await()
+        wm.cancelUniqueWork("sync-$accountId-now").await()
         downloads.stopAll(app, accountId, deleteFiles = removeAccount)
         if (removeAccount) {
-            catalog.deleteAccount(accountId)
-            accounts.remove(accountId, deleteDownloads = true)
+            // A sweep still running in this process would re-insert catalogue rows after the delete.
+            sync.exclusive(accountId) {
+                catalog.deleteAccount(accountId)
+                accounts.remove(accountId, deleteDownloads = true)
+            }
         } else {
             accounts.signOut(accountId)
         }
@@ -153,7 +161,7 @@ class SettingsViewModel(
         if (removeAccount) {
             folderExport.forget(accountId)
             withContext(Dispatchers.IO) { clearCoverCache() }
-            refreshCoverSize()
+            _coverBytes.value = withContext(Dispatchers.IO) { coverCacheSize() }
         }
     }
 
@@ -167,10 +175,12 @@ class SettingsViewModel(
                         container.settings,
                         container.db.catalogDao(),
                         container.downloadRepository,
+                        container.librarySync,
                         container.folderExport,
                         container::dropAuthedClient,
                         { container.imageLoader.diskCache?.size ?: 0L },
                         container::clearCoverCache,
+                        container.appScope,
                     )
                 }
             }

@@ -83,6 +83,7 @@ private val LICENCES =
         "Ktor" to "Apache License 2.0",
         "OkHttp, Okio" to "Apache License 2.0",
         "Coil" to "Apache License 2.0",
+        "Material Symbols (icons)" to "Apache License 2.0",
     )
 
 @OptIn(ExperimentalMaterial3Api::class)

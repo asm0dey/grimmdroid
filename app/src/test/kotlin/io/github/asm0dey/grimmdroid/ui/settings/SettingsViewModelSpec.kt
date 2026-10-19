@@ -18,7 +18,12 @@
 package io.github.asm0dey.grimmdroid.ui.settings
 
 import android.app.Application
+import android.net.Uri
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -35,12 +40,16 @@ import io.github.asm0dey.grimmdroid.download.DownloadRepository
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import io.github.asm0dey.grimmdroid.export.FolderExport
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
+import io.github.asm0dey.grimmdroid.sync.LibrarySync
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -74,8 +83,12 @@ class SettingsViewModelSpec {
     private lateinit var settings: SettingsStore
     private lateinit var accounts: AccountRepository
     private lateinit var vm: SettingsViewModel
+    private lateinit var folderExport: FolderExport
+    private lateinit var sync: LibrarySync
+    private val store = ViewModelStore()
     private val dropped = mutableListOf<Long>()
-    private var coverClears = 0
+
+    @Volatile private var coverClears = 0
 
     @Before
     fun setUp() {
@@ -88,35 +101,48 @@ class SettingsViewModelSpec {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         settings = SettingsStore(PreferenceDataStoreFactory.create(scope = scope) { File(dir, "settings.preferences_pb") })
         accounts = AccountRepository(db.accountDao(), XorCipher, settings)
-        vm =
-            SettingsViewModel(
-                ctx,
-                accounts,
-                settings,
-                db.catalogDao(),
-                DownloadRepository(db.catalogDao(), { error("no network in this test") }, dir),
-                FolderExport(ctx, settings),
-                dropClient = { dropped += it },
-                coverCacheSize = { 0L },
-                clearCoverCache = { coverClears++ },
-            )
+        folderExport = FolderExport(ctx, settings)
+        sync = LibrarySync(db.catalogDao(), accounts, { error("no network in this test") }, System::currentTimeMillis)
+        val factory =
+            viewModelFactory {
+                initializer {
+                    SettingsViewModel(
+                        ctx,
+                        accounts,
+                        settings,
+                        db.catalogDao(),
+                        DownloadRepository(db.catalogDao(), { error("no network in this test") }, dir),
+                        sync,
+                        folderExport,
+                        dropClient = { dropped += it },
+                        coverCacheSize = { 0L },
+                        clearCoverCache = { coverClears++ },
+                        appScope = scope,
+                    )
+                }
+            }
+        vm = ViewModelProvider.create(store, factory)[SettingsViewModel::class]
     }
 
     @After
     fun tearDown() {
+        store.clear()
         db.close()
         scope.cancel()
         dir.deleteRecursively()
         Dispatchers.resetMain()
     }
 
+    private fun book(
+        accountId: Long,
+        id: Long,
+    ) = BookEntity(accountId, id, "T", "A", null, null, null, null, null, null, null, "EPUB", null, null, null, false, 1)
+
     /** An account with one downloaded book on disk; returns the account id and the file. */
     private suspend fun accountWithBook(): Pair<Long, File> {
         val id = accounts.addOrUpdate("https://a", "u", "1.0", AppUserInfo(canDownload = true), Tokens("t", "r"))
         val dao = db.catalogDao()
-        dao.upsertBooks(
-            listOf(BookEntity(id, BOOK, "T", "A", null, null, null, null, null, null, null, "EPUB", null, null, null, false, 1)),
-        )
+        dao.upsertBooks(listOf(book(id, BOOK)))
         val file = File(dir, "books/$id/$BOOK/t.epub").apply { parentFile!!.mkdirs() }
         file.writeText("book")
         dao.upsertDownload(DownloadEntity(id, BOOK, 0, "t.epub", file.path, 4, DownloadState.DONE, 1f))
@@ -160,5 +186,42 @@ class SettingsViewModelSpec {
             assertNotNull(db.catalogDao().download(id, BOOK).first())
             assertNotNull(db.catalogDao().book(id, BOOK).first())
             assertEquals(0, coverClears)
+        }
+
+    @Test
+    fun removalFinishesEvenWhenSettingsIsClosedMidWay() =
+        runBlocking {
+            val (id, _) = accountWithBook()
+            val folder = Uri.parse("content://tree/books")
+            folderExport.setFolder(id, folder)
+            val resolver = ApplicationProvider.getApplicationContext<Application>().contentResolver
+            assertTrue(resolver.persistedUriPermissions.any { it.uri == folder })
+            val job = vm.signOut(id, removeAccount = true)
+            store.clear() // navigation popped Settings: viewModelScope is cancelled
+            job.join()
+            assertFalse(resolver.persistedUriPermissions.any { it.uri == folder })
+            assertNull(settings.folderUri(id).first())
+            assertEquals(1, coverClears)
+            assertNull(accounts.account(id))
+        }
+
+    @Test
+    fun removalWaitsForARunningSweepSoItsRowsDontSurvive() =
+        runBlocking {
+            val (id, _) = accountWithBook()
+            val started = CompletableDeferred<Unit>()
+            val sweep =
+                launch(Dispatchers.IO) {
+                    sync.exclusive(id) {
+                        started.complete(Unit)
+                        delay(300)
+                        db.catalogDao().upsertBooks(listOf(book(id, 99)))
+                    }
+                }
+            started.await()
+            vm.signOutNow(id, removeAccount = true)
+            sweep.join()
+            assertNull(db.catalogDao().book(id, 99).first())
+            assertNull(db.catalogDao().book(id, BOOK).first())
         }
 }
