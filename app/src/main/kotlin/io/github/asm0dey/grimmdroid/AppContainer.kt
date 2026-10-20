@@ -19,7 +19,9 @@ package io.github.asm0dey.grimmdroid
 
 import android.content.Context
 import android.util.Log
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
 import coil3.ImageLoader
@@ -89,7 +91,14 @@ class AppContainer(
 
     // One DataStore per file, in the default files/datastore/ dir that the backup rules exclude.
     val settings = SettingsStore(PreferenceDataStoreFactory.create { app.preferencesDataStoreFile("settings") })
-    val readerSettings = ReaderSettingsStore(PreferenceDataStoreFactory.create { app.preferencesDataStoreFile("reader") })
+
+    // A corrupted file would make every reader open throw; the reader's look is cheap to lose.
+    val readerSettings =
+        ReaderSettingsStore(
+            PreferenceDataStoreFactory.create(corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }) {
+                app.preferencesDataStoreFile("reader")
+            },
+        )
     val pendingOidc = PendingOidcStore(PreferenceDataStoreFactory.create { app.preferencesDataStoreFile("oidc") })
 
     val accounts = AccountRepository(db.accountDao(), KeystoreTokenCipher(), settings)

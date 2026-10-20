@@ -199,6 +199,25 @@ class FontsTest {
         }
 
     @Test
+    fun importRefusesFilesOver50Mb() =
+        runBlocking {
+            val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+            val dir = Files.createTempDirectory("big").toFile()
+            val big =
+                dir.resolve("Huge.ttf").apply {
+                    writeBytes(TTF)
+                    java.io.RandomAccessFile(this, "rw").use { it.setLength(50L * 1024 * 1024 + 1) }
+                }
+            assertTrue(fonts.import(context, Uri.fromFile(big)).isFailure)
+            assertEquals(emptyList<String>(), filesDir.resolve("fonts/local").list()!!.toList()) // no partial copy left
+            big.writeBytes(TTF)
+            java.io.RandomAccessFile(big, "rw").use { it.setLength(50L * 1024 * 1024) }
+            val imported = fonts.import(context, Uri.fromFile(big))
+            dir.deleteRecursively()
+            assertTrue(imported.isSuccess)
+        }
+
+    @Test
     fun deleteRefusesFilesOutsideTheImportedDir() =
         runBlocking {
             fonts.syncServer(ACCOUNT)

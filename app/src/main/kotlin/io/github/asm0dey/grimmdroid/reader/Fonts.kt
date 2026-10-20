@@ -44,6 +44,8 @@ private val EXTENSIONS = mapOf("TTF" to "ttf", "OTF" to "otf", "WOFF" to "woff",
 /** First four bytes of a TrueType font, OpenType (CFF) font, Apple TrueType font and TrueType collection. */
 private val SIGNATURES = listOf(byteArrayOf(0, 1, 0, 0), "OTTO".toByteArray(), "true".toByteArray(), "ttcf".toByteArray())
 
+private const val MAX_IMPORT_BYTES = 50L * 1024 * 1024
+
 /** A server-given or picked file name made safe as a plain file name and a CSS family name. */
 private fun sanitize(name: String): String = name.trim().replace(Regex("[^\\p{L}\\p{N} _-]"), "_").ifBlank { "font" }
 
@@ -97,7 +99,7 @@ class Fonts(
         }
     }
 
-    /** Copies a TrueType/OpenType font picked by the user into the imported fonts; anything else fails. */
+    /** Copies a TrueType/OpenType font of at most 50 MB picked by the user into the imported fonts; anything else fails. */
     suspend fun import(
         context: Context,
         uri: Uri,
@@ -115,7 +117,16 @@ class Fonts(
                         require(SIGNATURES.any { s -> s.contentEquals(header) }) { "Not a TrueType or OpenType font" }
                         tmp.outputStream().use { out ->
                             out.write(header)
-                            it.copyTo(out)
+                            // Counted while copying: a mis-picked multi-GB file must not fill the storage first.
+                            val buf = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var size = header.size.toLong()
+                            while (true) {
+                                val n = it.read(buf)
+                                if (n < 0) break
+                                size += n
+                                require(size <= MAX_IMPORT_BYTES) { "Larger than 50 MB" }
+                                out.write(buf, 0, n)
+                            }
                         }
                     }
                     val file = local.resolve("${sanitize(name)}.${if (header.contentEquals(SIGNATURES[1])) "otf" else "ttf"}")
