@@ -132,7 +132,7 @@ class GrimmoryApi(
             }
             Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         } finally {
-            tmp.delete()
+            Files.deleteIfExists(tmp.toPath())
         }
     }
 }

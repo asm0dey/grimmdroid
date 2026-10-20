@@ -316,7 +316,7 @@ class ReaderActivity : FragmentActivity() {
     }
 
     private fun deleteFont(font: ReaderFont) {
-        fontStore.delete(font)
+        if (!fontStore.delete(font)) return
         if (settings.fontFamily == font.family) updateSettings { it.copy(fontFamily = null) }
         lifecycleScope.launch { refreshFonts() }
     }

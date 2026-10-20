@@ -26,10 +26,11 @@ import java.net.URI
 import java.util.zip.ZipFile
 
 /** Read-only view of an EPUB zip: the spine and its XHTML documents. */
-class EpubArchive(
-    file: File,
-) : Closeable {
-    private val zip = ZipFile(file)
+class EpubArchive private constructor(
+    private val zip: ZipFile,
+) : Closeable by zip {
+    constructor(file: File) : this(ZipFile(file))
+
     private val documents = mutableMapOf<String, Document?>()
 
     /** Zip paths of every spine `itemref` (linear or not) in OPF order — CFI spine steps count them all. */
@@ -55,8 +56,6 @@ class EpubArchive(
 
     /** Spine index of [href] (a zip path or Readium's publication-relative URL), or -1. */
     fun spineIndexOf(href: String): Int = spine.indexOf(normalize(href))
-
-    override fun close() = zip.close()
 }
 
 private fun normalize(href: String): String {

@@ -156,28 +156,6 @@ fun AppNav(container: AppContainer) {
     val defaultPassword = stringResource(R.string.default_password)
     val signOutFailed = stringResource(R.string.sign_out_failed)
     LaunchedEffect(Unit) { container.signOutFailures.receiveAsFlow().collect { snackbar.showSnackbar(signOutFailed) } }
-    val context = LocalContext.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val noApp = stringResource(R.string.no_app_to_open)
-    // Here rather than on Details, so a book downloaded for reading opens even after the user left that screen.
-    LaunchedEffect(Unit) {
-        container.bookOpens.collect { event ->
-            // In the background the download's notification carries the read instead.
-            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@collect
-            when (event) {
-                is DetailsEvent.Read -> {
-                    context.startActivity(ReaderActivity.intent(context, event.accountId, event.bookId, event.file))
-                }
-
-                is DetailsEvent.OpenWith -> {
-                    if (container.exporter.openWith(event.file) == ExportResult.NoApp) snackbar.showSnackbar(noApp)
-                }
-
-                else -> {}
-            }
-        }
-    }
-
     // Removing the last account leaves nothing to show: start over at Onboarding (the start destination is frozen).
     LaunchedEffect(loaded.isEmpty()) {
         if (loaded.isEmpty() && nav.currentDestination?.hasRoute(Onboarding::class) == false) {
@@ -185,17 +163,9 @@ fun AppNav(container: AppContainer) {
         }
     }
     RequestNotificationsOnce(inShell)
+    OpenReadyBooks(container, snackbar)
     ResetTabsOnAccountSwitch(nav, current?.id)
-    // An SSO redirect can arrive while Onboarding isn't showing (process death during "Add server"); its ViewModel finishes it.
-    LaunchedEffect(Unit) {
-        OidcRedirects.incoming.collect {
-            if (container.pendingOidc.load() != null &&
-                nav.currentDestination?.hasRoute(Onboarding::class) != true
-            ) {
-                nav.navigate(Onboarding())
-            }
-        }
-    }
+    FinishSsoRedirects(container, nav)
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -329,6 +299,51 @@ fun AppNav(container: AppContainer) {
             },
             onDismiss = { sheetOpen = false },
         )
+    }
+}
+
+/** Opens a book downloaded for reading: here rather than on Details, so it opens even after the user left that screen. */
+@Composable
+private fun OpenReadyBooks(
+    container: AppContainer,
+    snackbar: SnackbarHostState,
+) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val noApp = stringResource(R.string.no_app_to_open)
+    LaunchedEffect(Unit) {
+        container.bookOpens.collect { event ->
+            // In the background the download's notification carries the read instead.
+            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@collect
+            when (event) {
+                is DetailsEvent.Read -> {
+                    context.startActivity(ReaderActivity.intent(context, event.accountId, event.bookId, event.file))
+                }
+
+                is DetailsEvent.OpenWith -> {
+                    if (container.exporter.openWith(event.file) == ExportResult.NoApp) snackbar.showSnackbar(noApp)
+                }
+
+                else -> {
+                    Unit
+                }
+            }
+        }
+    }
+}
+
+/** An SSO redirect can arrive while Onboarding isn't showing (process death during "Add server"); its ViewModel finishes it. */
+@Composable
+private fun FinishSsoRedirects(
+    container: AppContainer,
+    nav: NavController,
+) {
+    LaunchedEffect(Unit) {
+        OidcRedirects.incoming.collect {
+            if (container.pendingOidc.load() != null && nav.currentDestination?.hasRoute(Onboarding::class) != true) {
+                nav.navigate(Onboarding())
+            }
+        }
     }
 }
 

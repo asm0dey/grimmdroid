@@ -111,29 +111,12 @@ class Fonts(
                 local.mkdirs()
                 val tmp = File.createTempFile("import", ".part", local)
                 try {
-                    val header = ByteArray(4)
-                    DataInputStream(input).use {
-                        it.readFully(header) // shorter than 4 bytes: EOFException, not a font
-                        require(SIGNATURES.any { s -> s.contentEquals(header) }) { "Not a TrueType or OpenType font" }
-                        tmp.outputStream().use { out ->
-                            out.write(header)
-                            // Counted while copying: a mis-picked multi-GB file must not fill the storage first.
-                            val buf = ByteArray(DEFAULT_BUFFER_SIZE)
-                            var size = header.size.toLong()
-                            while (true) {
-                                val n = it.read(buf)
-                                if (n < 0) break
-                                size += n
-                                require(size <= MAX_IMPORT_BYTES) { "Larger than 50 MB" }
-                                out.write(buf, 0, n)
-                            }
-                        }
-                    }
+                    val header = DataInputStream(input).use { copyFont(it, tmp) }
                     val file = local.resolve("${sanitize(name)}.${if (header.contentEquals(SIGNATURES[1])) "otf" else "ttf"}")
                     Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
                     Result.success(ReaderFont(file.nameWithoutExtension, file, fromServer = false))
                 } finally {
-                    tmp.delete()
+                    Files.deleteIfExists(tmp.toPath())
                 }
             } catch (e: IOException) {
                 Result.failure(e)
@@ -144,10 +127,36 @@ class Fonts(
             }
         }
 
-    /** Deletes an imported font; the server's are only removed by a sync, and nothing outside `fonts/local/` is touched. */
-    fun delete(font: ReaderFont) {
+    /**
+     * Deletes an imported font and says whether it is gone; the server's are only removed by a sync, and nothing outside
+     * `fonts/local/` is touched.
+     */
+    fun delete(font: ReaderFont): Boolean =
         // Only a file directly in the imported dir, whatever the caller's flags or path say.
-        if (font.file.canonicalFile.parentFile == local.canonicalFile) font.file.delete()
+        font.file.canonicalFile.parentFile == local.canonicalFile && font.file.delete()
+
+    /** Copies a font from [input] to [tmp]; returns its 4 header bytes. Fails on anything but TrueType/OpenType up to 50 MB. */
+    private fun copyFont(
+        input: DataInputStream,
+        tmp: File,
+    ): ByteArray {
+        val header = ByteArray(4)
+        input.readFully(header) // shorter than 4 bytes: EOFException, not a font
+        require(SIGNATURES.any { it.contentEquals(header) }) { "Not a TrueType or OpenType font" }
+        tmp.outputStream().use { out ->
+            out.write(header)
+            // Counted while copying: a mis-picked multi-GB file must not fill the storage first.
+            val buf = ByteArray(DEFAULT_BUFFER_SIZE)
+            var size = header.size.toLong()
+            while (true) {
+                val n = input.read(buf)
+                if (n < 0) break
+                size += n
+                require(size <= MAX_IMPORT_BYTES) { "Larger than 50 MB" }
+                out.write(buf, 0, n)
+            }
+        }
+        return header
     }
 
     private fun displayName(

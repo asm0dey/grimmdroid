@@ -18,6 +18,7 @@
 package io.github.asm0dey.grimmdroid.ui.details
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -118,7 +119,6 @@ fun DetailsScreen(
     val scope = rememberCoroutineScope()
     // Non-null while the file picker is open: whether the chosen file is shared once downloaded.
     var pickFor by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    var menuOpen by remember { mutableStateOf(false) }
     var saveAfterPick by remember { mutableStateOf(false) }
     val folderPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -129,10 +129,6 @@ fun DetailsScreen(
                 }
             }
         }
-    val savedTo = stringResource(R.string.saved_to_folder, "%s")
-    val change = stringResource(R.string.change_action)
-    val folderLost = stringResource(R.string.folder_lost_hint)
-    val saveFailed = stringResource(R.string.save_failed)
     val deleteFailed = stringResource(R.string.delete_book_failed)
     val noApp = stringResource(R.string.no_app_to_open)
     val noBrowser = stringResource(R.string.no_browser)
@@ -150,35 +146,18 @@ fun DetailsScreen(
                     }
 
                     // Sent to AppNav's app-wide channel instead, so they still open after this screen is gone.
-                    is DetailsEvent.Read, is DetailsEvent.OpenWith -> {}
+                    is DetailsEvent.Read, is DetailsEvent.OpenWith -> {
+                        Unit
+                    }
 
                     DetailsEvent.DeleteFailed -> {
                         snackbar.showSnackbar(deleteFailed)
                     }
 
                     is DetailsEvent.Saved -> {
-                        when (val outcome = event.result.getOrNull()) {
-                            FolderResult.NeedsFolder -> {
-                                saveAfterPick = true
-                                folderPicker.launch(null)
-                            }
-
-                            is FolderResult.Saved -> {
-                                val message = savedTo.format(outcome.folderName)
-                                val shown = snackbar.showSnackbar(message, change, duration = SnackbarDuration.Long)
-                                if (shown == SnackbarResult.ActionPerformed) {
-                                    saveAfterPick = false
-                                    folderPicker.launch(null)
-                                }
-                            }
-
-                            FolderResult.FolderLost -> {
-                                snackbar.showSnackbar(folderLost)
-                            }
-
-                            null -> {
-                                snackbar.showSnackbar(saveFailed)
-                            }
+                        showSaved(context, snackbar, event.result) { saveAfter ->
+                            saveAfterPick = saveAfter
+                            folderPicker.launch(null)
                         }
                     }
                 }
@@ -200,8 +179,10 @@ fun DetailsScreen(
                 IconButton(onClick = onBack) { Icon(painterResource(R.drawable.ic_arrow_back), stringResource(R.string.back_action)) }
             },
             actions = {
-                if (action != null && action != PrimaryAction.NoPermission && action != PrimaryAction.Audiobook) {
-                    IconButton(onClick = {
+                TopActions(
+                    action,
+                    canOpenWeb = baseUrl != null && book != null,
+                    onShare = {
                         if (action is PrimaryAction.Downloaded) {
                             exporter.share(
                                 action.file,
@@ -210,29 +191,18 @@ fun DetailsScreen(
                         } else {
                             requestDownload(true)
                         }
-                    }) { Icon(painterResource(R.drawable.ic_share), stringResource(R.string.share_action)) }
-                }
-                IconButton(
-                    onClick = { menuOpen = true },
-                ) { Icon(painterResource(R.drawable.ic_more_vert), stringResource(R.string.more_options)) }
-                DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
-                    if (action is PrimaryAction.Downloaded || action is PrimaryAction.Downloading) {
-                        DropdownMenuItem(text = { Text(stringResource(R.string.delete_from_phone)) }, onClick = {
-                            menuOpen = false
-                            vm.deleteFromPhone()
-                        })
-                    }
-                    if (baseUrl != null && book != null) {
-                        DropdownMenuItem(text = { Text(stringResource(R.string.open_in_web)) }, onClick = {
-                            menuOpen = false
+                    },
+                    onDelete = vm::deleteFromPhone,
+                    onOpenWeb = {
+                        if (baseUrl != null && book != null) {
                             try {
                                 CustomTabsIntent.Builder().build().launchUrl(context, webUiBookUrl(baseUrl, book.id).toUri())
                             } catch (_: ActivityNotFoundException) {
                                 scope.launch { snackbar.showSnackbar(noBrowser) }
                             }
-                        })
-                    }
-                }
+                        }
+                    },
+                )
             },
         )
         if (s.missing) {
@@ -279,6 +249,64 @@ fun DetailsScreen(
             confirmButton = {},
             dismissButton = { TextButton(onClick = { pickFor = null }) { Text(stringResource(R.string.cancel_action)) } },
         )
+    }
+}
+
+/** Share, then the ⋮ menu with Delete from phone and Open in web; [action] null hides Share. */
+@Composable
+private fun TopActions(
+    action: PrimaryAction?,
+    canOpenWeb: Boolean,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+    onOpenWeb: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    if (action != null && action != PrimaryAction.NoPermission && action != PrimaryAction.Audiobook) {
+        IconButton(onClick = onShare) { Icon(painterResource(R.drawable.ic_share), stringResource(R.string.share_action)) }
+    }
+    IconButton(onClick = { menuOpen = true }) { Icon(painterResource(R.drawable.ic_more_vert), stringResource(R.string.more_options)) }
+    DropdownMenu(menuOpen, onDismissRequest = { menuOpen = false }) {
+        if (action is PrimaryAction.Downloaded || action is PrimaryAction.Downloading) {
+            DropdownMenuItem(text = { Text(stringResource(R.string.delete_from_phone)) }, onClick = {
+                menuOpen = false
+                onDelete()
+            })
+        }
+        if (canOpenWeb) {
+            DropdownMenuItem(text = { Text(stringResource(R.string.open_in_web)) }, onClick = {
+                menuOpen = false
+                onOpenWeb()
+            })
+        }
+    }
+}
+
+/** Tells how a save to the folder went; [pickFolder] opens the folder picker, saving again afterwards when passed true. */
+private suspend fun showSaved(
+    context: Context,
+    snackbar: SnackbarHostState,
+    result: Result<FolderResult>,
+    pickFolder: (saveAfter: Boolean) -> Unit,
+) {
+    when (val outcome = result.getOrNull()) {
+        FolderResult.NeedsFolder -> {
+            pickFolder(true)
+        }
+
+        is FolderResult.Saved -> {
+            val message = context.getString(R.string.saved_to_folder, outcome.folderName)
+            val shown = snackbar.showSnackbar(message, context.getString(R.string.change_action), duration = SnackbarDuration.Long)
+            if (shown == SnackbarResult.ActionPerformed) pickFolder(false)
+        }
+
+        FolderResult.FolderLost -> {
+            snackbar.showSnackbar(context.getString(R.string.folder_lost_hint))
+        }
+
+        null -> {
+            snackbar.showSnackbar(context.getString(R.string.save_failed))
+        }
     }
 }
 

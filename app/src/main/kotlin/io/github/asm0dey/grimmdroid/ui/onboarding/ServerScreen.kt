@@ -114,12 +114,15 @@ fun OnboardingRoute(
         // One call site for SignIn, SigningIn and Done, so the typed username and password survive the state changes.
         is OnboardingState.SignIn, OnboardingState.SigningIn, is OnboardingState.Done -> {
             val signingIn = s !is OnboardingState.SignIn
-            val form = (s as? OnboardingState.SignIn) ?: lastSignIn?.copy(error = null)
-            if (form != null) {
-                SignInScreen(form, signingIn = signingIn, onSso = vm::signInWithSso, onSignIn = vm::signIn)
-            } else {
-                // A sign-in finishing after process death has no form to show.
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            when (val form = (s as? OnboardingState.SignIn) ?: lastSignIn?.copy(error = null)) {
+                null -> {
+                    // A sign-in finishing after process death has no form to show.
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                }
+
+                else -> {
+                    SignInScreen(form, signingIn = signingIn, onSso = vm::signInWithSso, onSignIn = vm::signIn)
+                }
             }
         }
     }
