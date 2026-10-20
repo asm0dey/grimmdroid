@@ -368,6 +368,21 @@ class ReaderViewModelSpec {
         }
 
     @Test
+    fun anHtmlAnswerNeitherCrashesNorMovesTheReader() =
+        runTest(dispatcher) {
+            local(0.4)
+            server.html = io.ktor.http.HttpStatusCode.OK
+            val vm = vm()
+            until { server.gets.size == 2 } // progress and bookmarks
+            settle()
+            advanceTimeBy(3_100.milliseconds)
+            until { enqueued == listOf(1L) } // the upload failed like an IO error: left to the worker
+            assertNull(vm.jump.value)
+            assertEquals(0.4, row()!!.totalProgression, 0.0)
+            assertEquals(PendingUpload.NORMAL, row()!!.pending)
+        }
+
+    @Test
     fun locatorChangesSaveAtOnceAndOnStopFlushes() =
         runTest(dispatcher) {
             local(0.5)

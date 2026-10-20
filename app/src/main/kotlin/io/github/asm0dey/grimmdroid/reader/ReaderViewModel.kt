@@ -20,9 +20,9 @@ package io.github.asm0dey.grimmdroid.reader
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
-import io.github.asm0dey.grimmdroid.api.SessionExpiredException
+import io.github.asm0dey.grimmdroid.api.callServer
+import io.github.asm0dey.grimmdroid.api.valueOrNull
 import io.github.asm0dey.grimmdroid.reader.cfi.EpubArchive
-import io.ktor.client.plugins.ResponseException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -351,16 +351,7 @@ class ReaderViewModel(
         if (!online.value) return null
         val api = api() ?: return null
         val archive = archive.await() ?: return null
-        val dto =
-            try {
-                api.progress(bookId)
-            } catch (_: IOException) {
-                return null
-            } catch (_: ResponseException) {
-                return null
-            } catch (_: SessionExpiredException) {
-                return null
-            }
+        val dto = callServer { api.progress(bookId) }.valueOrNull() ?: return null
         return withContext(io) { serverPosition(dto, archive) }
     }
 

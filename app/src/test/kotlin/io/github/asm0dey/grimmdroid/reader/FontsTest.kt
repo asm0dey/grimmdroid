@@ -58,6 +58,7 @@ private class FontServer {
     var listJson =
         """[{"id":1,"fontName":"Literata","format":"TTF","fileSize":6},{"id":2,"fontName":"Bad/Name","format":"OTF","fileSize":5}]"""
     var forbidden = false
+    var html = false
     val requests = mutableListOf<String>()
     private val files = mapOf(1L to TTF, 2L to OTF)
 
@@ -72,6 +73,10 @@ private class FontServer {
                     when {
                         req.method != HttpMethod.Get -> {
                             error("unexpected ${req.method} ${req.url}")
+                        }
+
+                        html -> {
+                            respond("<html>Bad gateway</html>", HttpStatusCode.OK, htmlHeaders)
                         }
 
                         path == "/api/v1/custom-fonts" && forbidden -> {
@@ -147,6 +152,15 @@ class FontsTest {
         runBlocking {
             fonts.syncServer(ACCOUNT)
             server.forbidden = true
+            fonts.syncServer(ACCOUNT)
+            assertEquals(listOf("Bad_Name.otf", "Literata.ttf"), names())
+        }
+
+    @Test
+    fun undecodableListKeepsExistingFiles() =
+        runBlocking {
+            fonts.syncServer(ACCOUNT)
+            server.html = true
             fonts.syncServer(ACCOUNT)
             assertEquals(listOf("Bad_Name.otf", "Literata.ttf"), names())
         }

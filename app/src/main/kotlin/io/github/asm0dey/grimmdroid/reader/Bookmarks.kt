@@ -21,13 +21,13 @@ import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.api.BookmarkDto
 import io.github.asm0dey.grimmdroid.api.CreateBookmarkDto
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
-import io.github.asm0dey.grimmdroid.api.SessionExpiredException
+import io.github.asm0dey.grimmdroid.api.callServer
+import io.github.asm0dey.grimmdroid.api.valueOrNull
 import io.github.asm0dey.grimmdroid.reader.cfi.EpubArchive
 import io.github.asm0dey.grimmdroid.reader.cfi.parseCfi
 import io.github.asm0dey.grimmdroid.reader.cfi.resolve
 import io.github.asm0dey.grimmdroid.reader.cfi.spineIndex
 import io.ktor.client.plugins.ClientRequestException
-import io.ktor.client.plugins.ResponseException
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -38,7 +38,6 @@ import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
 import org.readium.r2.shared.util.Url
 import org.readium.r2.shared.util.mediatype.MediaType
-import java.io.IOException
 
 private const val TITLE_TEXT = 60
 
@@ -123,7 +122,7 @@ class Bookmarks(
         archive: EpubArchive,
     ) = lock.withLock {
         val api = apiFor(accountId) ?: return@withLock
-        val server = network { api.bookmarks(bookId) } ?: return@withLock
+        val server = callServer { api.bookmarks(bookId) }.valueOrNull() ?: return@withLock
         // A bookmark being deleted here stays hidden until the server forgets it.
         val deleting =
             dao
@@ -190,36 +189,25 @@ class Bookmarks(
 
             BookmarkState.PENDING_CREATE -> {
                 val cfi = row.cfi ?: return true
-                val created = network { api.createBookmark(CreateBookmarkDto(row.bookId, cfi, row.title)) } ?: return false
+                val created =
+                    callServer { api.createBookmark(CreateBookmarkDto(row.bookId, cfi, row.title)) }.valueOrNull() ?: return false
                 dao.updateBookmark(row.copy(serverId = created.id, state = BookmarkState.SYNCED))
             }
 
             BookmarkState.PENDING_DELETE -> {
                 val id = checkNotNull(row.serverId) { "PENDING_DELETE without a server id" }
-                network {
+                callServer {
                     try {
                         api.deleteBookmark(id)
                     } catch (e: ClientRequestException) {
                         if (e.response.status != HttpStatusCode.NotFound) throw e // already gone there
                     }
-                } ?: return false
+                }.valueOrNull() ?: return false
                 dao.deleteBookmark(row.localId)
             }
         }
         return true
     }
-
-    /** [block]'s result, or null when the server could not be reached or refused. */
-    private suspend fun <T : Any> network(block: suspend () -> T): T? =
-        try {
-            block()
-        } catch (_: IOException) {
-            null
-        } catch (_: ResponseException) {
-            null
-        } catch (_: SessionExpiredException) {
-            null // the account is signed out now: the row stays pending for the next sign-in
-        }
 }
 
 /** The server's bookmark at its CFI's place in [archive]; an unresolvable one keeps no place but is still listed. */

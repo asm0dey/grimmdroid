@@ -99,12 +99,16 @@ private object PlainCipher : TokenCipher {
 private const val BOOK = 7L
 private const val PROGRESS_PATH = "/api/v1/app/books/$BOOK/progress"
 private val jsonHeaders = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+internal val htmlHeaders = headersOf(HttpHeaders.ContentType, ContentType.Text.Html.toString())
 private const val LOCATOR = """{"href":"c2.xhtml","type":"application/xhtml+xml","locations":{"progression":0.0,"cssSelector":"#a"}}"""
 
 /** Grimmory's progress endpoint for book 7; any other request fails the test. */
 internal class FakeServer {
     var progressJson = "{}"
     var failWith: Exception? = null
+
+    /** When set, every request gets an HTML page with this status (a proxy's error page, a captive portal). */
+    var html: HttpStatusCode? = null
     var onPut: suspend () -> Unit = {}
     val gets = mutableListOf<String>()
     val puts = mutableListOf<String>()
@@ -119,6 +123,10 @@ internal class FakeServer {
                 FixedTokens,
                 MockEngine { req ->
                     failWith?.let { throw it }
+                    html?.let { status ->
+                        if (req.method == HttpMethod.Get) gets += req.url.encodedPath else puts += req.url.encodedPath
+                        return@MockEngine respond("<html>Bad gateway</html>", status, htmlHeaders)
+                    }
                     when {
                         req.method == HttpMethod.Get && req.url.encodedPath == PROGRESS_PATH -> {
                             gets += req.url.encodedPath
@@ -348,6 +356,20 @@ class PositionSyncTest {
         runBlocking {
             dao.upsertPosition(row())
             server.failWith = IOException("offline")
+            assertEquals(UploadResult.FAILED, sync.upload(1, BOOK, 42) { "c" })
+            assertEquals(listOf(1L), enqueued)
+            assertEquals(row(), dao.position(1, BOOK))
+            assertEquals(0, server.puts.size)
+        }
+
+    @Test
+    fun undecodableAnswersFailKeepTheRowAndEnqueueOnce() =
+        runBlocking {
+            dao.upsertPosition(row())
+            server.html = HttpStatusCode.OK
+            assertEquals(UploadResult.FAILED, sync.upload(1, BOOK, 42) { "c" })
+            server.html = null
+            server.progressJson = """{"epubProgress":{"percentage":"most"}}""" // a changed schema
             assertEquals(UploadResult.FAILED, sync.upload(1, BOOK, 42) { "c" })
             assertEquals(listOf(1L), enqueued)
             assertEquals(row(), dao.position(1, BOOK))

@@ -22,21 +22,20 @@ import io.github.asm0dey.grimmdroid.api.BookProgressDto
 import io.github.asm0dey.grimmdroid.api.FileProgressDto
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
 import io.github.asm0dey.grimmdroid.api.GrimmoryJson
-import io.github.asm0dey.grimmdroid.api.SessionExpiredException
 import io.github.asm0dey.grimmdroid.api.UpdateProgressDto
+import io.github.asm0dey.grimmdroid.api.callServer
+import io.github.asm0dey.grimmdroid.api.valueOrNull
 import io.github.asm0dey.grimmdroid.reader.cfi.EpubArchive
 import io.github.asm0dey.grimmdroid.reader.cfi.PositionTarget
 import io.github.asm0dey.grimmdroid.reader.cfi.cfiFor
 import io.github.asm0dey.grimmdroid.reader.cfi.parseCfi
 import io.github.asm0dey.grimmdroid.reader.cfi.resolve
 import io.github.asm0dey.grimmdroid.reader.cfi.spineIndex
-import io.ktor.client.plugins.ResponseException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
-import java.io.IOException
 
 /** Two total progressions closer than this are the same place (about a page of a 200-page book). */
 const val SAME_PLACE = 0.005
@@ -212,25 +211,21 @@ class PositionSync(
     ): UploadResult {
         val row = dao.position(accountId, bookId)?.takeIf { it.pending != PendingUpload.NONE } ?: return UploadResult.SENT
         val account = account(accountId)?.takeUnless { it.signedOut } ?: return UploadResult.FAILED
-        return try {
-            val api = api(account)
-            // shortcut: a server CFI without any percentage isn't weighed (it needs the archive); Grimmory sends both.
-            if (row.pending == PendingUpload.NORMAL) {
-                val server = furthest(api.progress(bookId))
-                if (server != null && server - row.totalProgression > SAME_PLACE) return UploadResult.HELD_BACK
-            }
+        val api = api(account)
+        // shortcut: a server CFI without any percentage isn't weighed (it needs the archive); Grimmory sends both.
+        if (row.pending == PendingUpload.NORMAL) {
+            val dto = callServer { api.progress(bookId) }.valueOrNull() ?: return failed(accountId, enqueueOnFailure)
+            val server = furthest(dto)
+            if (server != null && server - row.totalProgression > SAME_PLACE) return UploadResult.HELD_BACK
+        }
+        // A signed-out account (SessionExpiredException) fails too: the worker then returns success and keeps the row.
+        callServer {
             val body =
                 FileProgressDto(bookFileId, cfi(row.locatorJson), locatorHref(row.locatorJson), (row.totalProgression * 100).toFloat())
             api.putProgress(bookId, UpdateProgressDto(body))
-            dao.markUploaded(accountId, bookId, row.updatedAt, row.locatorJson)
-            UploadResult.SENT
-        } catch (_: IOException) {
-            failed(accountId, enqueueOnFailure)
-        } catch (_: ResponseException) {
-            failed(accountId, enqueueOnFailure)
-        } catch (_: SessionExpiredException) {
-            failed(accountId, enqueueOnFailure) // the account is signed out now: the worker returns success and keeps the row
-        }
+        }.valueOrNull() ?: return failed(accountId, enqueueOnFailure)
+        dao.markUploaded(accountId, bookId, row.updatedAt, row.locatorJson)
+        return UploadResult.SENT
     }
 
     private fun failed(

@@ -66,6 +66,7 @@ private object StaticTokens : TokenSource {
 private class BookmarkServer {
     var listJson = "[]"
     var failWith: Exception? = null
+    var html: HttpStatusCode? = null
     val requests = mutableListOf<String>()
     var nextId = 5L
 
@@ -77,6 +78,10 @@ private class BookmarkServer {
                 MockEngine { req ->
                     failWith?.let { throw it }
                     val path = req.url.encodedPath
+                    html?.let { status ->
+                        requests += "${req.method.value} $path"
+                        return@MockEngine respond("<html>Bad gateway</html>", status, htmlHeaders)
+                    }
                     when {
                         req.method == HttpMethod.Get && path == "/api/v1/bookmarks/book/$BOOK" -> {
                             requests += "GET $path"
@@ -273,6 +278,22 @@ class BookmarksTest {
         runBlocking {
             bookmarks.add(account, BOOK, locator, CFI, "t")
             server.failWith = IOException("offline")
+            bookmarks.refresh(account, BOOK, archive)
+            assertEquals(1, rows().size)
+        }
+
+    @Test
+    fun undecodableAnswersKeepRowsAndAreRetried() =
+        runBlocking {
+            server.html = HttpStatusCode.OK
+            bookmarks.add(account, BOOK, locator, CFI, "t")
+            assertEquals(BookmarkState.PENDING_CREATE, rows().single().state)
+            assertEquals(listOf(account), enqueued)
+            assertFalse(bookmarks.flush(account))
+            bookmarks.refresh(account, BOOK, archive)
+            assertEquals(BookmarkState.PENDING_CREATE, rows().single().state)
+            server.html = null
+            server.listJson = """[{"id":"five"}]""" // a changed schema
             bookmarks.refresh(account, BOOK, archive)
             assertEquals(1, rows().size)
         }

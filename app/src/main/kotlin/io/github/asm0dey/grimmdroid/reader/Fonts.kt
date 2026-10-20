@@ -21,8 +21,8 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
-import io.github.asm0dey.grimmdroid.api.SessionExpiredException
-import io.ktor.client.plugins.ResponseException
+import io.github.asm0dey.grimmdroid.api.callServer
+import io.github.asm0dey.grimmdroid.api.valueOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.DataInputStream
@@ -77,16 +77,7 @@ class Fonts(
     /** Downloads the account's server fonts not yet here and deletes the ones gone from the server; a failed list keeps all. */
     suspend fun syncServer(accountId: Long) {
         val api = api(accountId) ?: return
-        val fonts =
-            try {
-                api.customFonts()
-            } catch (_: IOException) {
-                null
-            } catch (_: ResponseException) {
-                null
-            } catch (_: SessionExpiredException) {
-                null
-            } ?: return
+        val fonts = callServer { api.customFonts() }.valueOrNull() ?: return
         val wanted =
             fonts
                 .mapNotNull { dto ->
@@ -102,13 +93,7 @@ class Fonts(
                 .forEach { it.delete() }
         }
         wanted.filterKeys { !dir.resolve(it).exists() }.forEach { (name, id) ->
-            try {
-                api.downloadFont(id, dir.resolve(name))
-            } catch (_: IOException) {
-                // Tried again on the next sync.
-            } catch (_: ResponseException) {
-            } catch (_: SessionExpiredException) {
-            }
+            callServer { api.downloadFont(id, dir.resolve(name)) } // a failure is tried again on the next sync
         }
     }
 
