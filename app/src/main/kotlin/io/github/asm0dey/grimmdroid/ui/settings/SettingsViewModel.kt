@@ -34,6 +34,7 @@ import io.github.asm0dey.grimmdroid.catalog.CatalogDao
 import io.github.asm0dey.grimmdroid.download.DownloadRepository
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import io.github.asm0dey.grimmdroid.export.FolderExport
+import io.github.asm0dey.grimmdroid.reader.PositionSync
 import io.github.asm0dey.grimmdroid.reader.ReaderDao
 import io.github.asm0dey.grimmdroid.reader.positionUploadWork
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
@@ -68,6 +69,7 @@ class SettingsViewModel(
     private val reader: ReaderDao,
     private val downloads: DownloadRepository,
     private val sync: LibrarySync,
+    private val positionSync: PositionSync,
     private val folderExport: FolderExport,
     private val dropClient: (Long) -> Unit,
     private val coverCacheSize: () -> Long,
@@ -164,6 +166,7 @@ class SettingsViewModel(
         wm.cancelUniqueWork("sync-$accountId").await()
         wm.cancelUniqueWork("sync-$accountId-now").await()
         wm.cancelUniqueWork(positionUploadWork(accountId)).await()
+        positionSync.followUpStarted(accountId) // that run is gone: the next offline read must enqueue a new one
         downloads.stopAll(app, accountId, deleteFiles = removeAccount)
         if (removeAccount) {
             // A sweep still running in this process would re-insert catalogue rows after the delete.
@@ -198,6 +201,7 @@ class SettingsViewModel(
                         container.db.readerDao(),
                         container.downloadRepository,
                         container.librarySync,
+                        container.positionSync,
                         container.folderExport,
                         container::dropAuthedClient,
                         { container.imageLoader.diskCache?.size ?: 0L },
