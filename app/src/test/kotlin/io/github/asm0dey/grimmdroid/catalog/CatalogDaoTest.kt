@@ -23,8 +23,12 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.github.asm0dey.grimmdroid.ui.search.ftsQuery
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -32,9 +36,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
 class CatalogDaoTest {
     private lateinit var db: CatalogDb
@@ -222,33 +225,49 @@ class CatalogDaoTest {
             }
         }
 
+    /**
+     * Room's paging source subscribes to the invalidation tracker from a coroutine of its own, so a
+     * write right after the first load can beat the subscription. Running Room on the test scheduler
+     * lets us wait for that subscription, and for the tracker's refresh, instead of racing them.
+     */
     private fun assertInvalidatedBy(
-        source: PagingSource<Int, BookRow>,
-        mutate: suspend () -> Unit,
-    ) = runBlocking {
-        load(source) // registers Room's table observer
-        val fired = CountDownLatch(1)
-        source.registerInvalidatedCallback { fired.countDown() }
-        mutate()
-        assertTrue(fired.await(5, TimeUnit.SECONDS))
+        source: CatalogDao.() -> PagingSource<Int, BookRow>,
+        mutate: suspend CatalogDb.() -> Unit,
+    ) = runTest {
+        val tracked =
+            Room
+                .inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), CatalogDb::class.java)
+                .setQueryCoroutineContext(StandardTestDispatcher(testScheduler))
+                .allowMainThreadQueries()
+                .build()
+        try {
+            val paging = tracked.catalogDao().source()
+            paging.load(PagingSource.LoadParams.Refresh(null, 100, false))
+            advanceUntilIdle()
+            tracked.mutate()
+            advanceUntilIdle()
+            assertTrue(paging.invalid)
+        } finally {
+            tracked.close()
+        }
     }
 
     @Test
     fun booksPagingInvalidatesOnEachObservedTable() {
         val q = BookQuery(1).toSql()
-        assertInvalidatedBy(dao.books(q)) { dao.upsertBooks(listOf(book(1))) }
-        assertInvalidatedBy(dao.books(q)) { dao.replaceShelfMembers(1, 1, false, listOf(1)) }
-        assertInvalidatedBy(dao.books(q)) {
+        assertInvalidatedBy({ books(q) }) { catalogDao().upsertBooks(listOf(book(1))) }
+        assertInvalidatedBy({ books(q) }) { catalogDao().replaceShelfMembers(1, 1, false, listOf(1)) }
+        assertInvalidatedBy({ books(q) }) {
             // runInTransaction makes Room's tracker refresh on commit; raw execSQL alone would not.
-            db.runInTransaction {
-                db.openHelper.writableDatabase.execSQL("INSERT INTO DownloadEntity VALUES (1,1,5,'f','p',1,'DONE',1.0)")
+            runInTransaction {
+                openHelper.writableDatabase.execSQL("INSERT INTO DownloadEntity VALUES (1,1,5,'f','p',1,'DONE',1.0)")
             }
         }
     }
 
     @Test
     fun searchPagingInvalidatesOnBookChange() {
-        assertInvalidatedBy(dao.search(1, "x*")) { dao.upsertBooks(listOf(book(1))) }
+        assertInvalidatedBy({ search(1, "x*") }) { catalogDao().upsertBooks(listOf(book(1))) }
     }
 
     @Test
