@@ -159,6 +159,7 @@ class ReaderActivity : FragmentActivity() {
             }
 
             override fun onExternalLinkActivated(url: AbsoluteUrl) {
+                if (!opensOutside(url.toString())) return
                 try {
                     startActivity(Intent(Intent.ACTION_VIEW, url.toString().toUri()))
                 } catch (_: ActivityNotFoundException) {
@@ -515,6 +516,11 @@ class ReaderActivity : FragmentActivity() {
                 .putExtra(EXTRA_FILE, file.path)
     }
 }
+
+private val EXTERNAL_SCHEMES = setOf("http", "https", "mailto")
+
+/** A book's link the reader hands to other apps: a file: link would crash, other schemes launch any app's deep link. */
+internal fun opensOutside(url: String): Boolean = url.substringBefore(':', "").lowercase() in EXTERNAL_SCHEMES
 
 /** [this] with the first visible element's selector, so the upload's CFI names that element. */
 private fun Locator.withSelector(selector: String?): Locator =
