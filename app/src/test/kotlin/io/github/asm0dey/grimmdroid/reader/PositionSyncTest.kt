@@ -377,6 +377,32 @@ class PositionSyncTest {
         }
 
     @Test
+    fun permanentRefusalsAreRejectedAndNeverRetried() =
+        runBlocking {
+            for (status in listOf(HttpStatusCode.BadRequest, HttpStatusCode.Forbidden, HttpStatusCode.NotFound, HttpStatusCode.Gone)) {
+                server.html = status
+                dao.upsertPosition(row())
+                assertEquals("$status", UploadResult.REJECTED, sync.upload(1, BOOK, 42) { "c" })
+                dao.upsertPosition(row(pending = PendingUpload.FORCE)) // the PUT is refused too
+                assertEquals("$status", UploadResult.REJECTED, sync.upload(1, BOOK, 42) { "c" })
+                assertEquals(row(pending = PendingUpload.FORCE), dao.position(1, BOOK)) // kept here
+            }
+            assertTrue(enqueued.isEmpty())
+        }
+
+    @Test
+    fun transientRefusalsFailAndAreRetried() =
+        runBlocking {
+            for (status in listOf(HttpStatusCode.RequestTimeout, HttpStatusCode.TooManyRequests, HttpStatusCode.ServiceUnavailable)) {
+                server.html = status
+                dao.upsertPosition(row())
+                assertEquals("$status", UploadResult.FAILED, sync.upload(1, BOOK, 42) { "c" })
+                sync.followUpStarted(1)
+            }
+            assertEquals(listOf(1L, 1L, 1L), enqueued)
+        }
+
+    @Test
     fun repeatedFailuresEnqueueOnceUntilTheWorkerStarts() =
         runBlocking {
             dao.upsertPosition(row())
@@ -554,6 +580,16 @@ class PositionSyncTest {
         assertEquals(ListenableWorker.Result.success(), runWorker(id))
         server.failWith = IOException("offline")
         assertEquals(ListenableWorker.Result.retry(), runWorker(id))
+        runBlocking { assertEquals(PendingUpload.NORMAL, dao.position(id, BOOK)!!.pending) }
+    }
+
+    @Test
+    fun workerTreatsARejectedPositionAsDone() {
+        val id = account()
+        downloaded(id)
+        runBlocking { dao.upsertPosition(row(account = id)) }
+        server.html = HttpStatusCode.NotFound
+        assertEquals(ListenableWorker.Result.success(), runWorker(id))
         runBlocking { assertEquals(PendingUpload.NORMAL, dao.position(id, BOOK)!!.pending) }
     }
 

@@ -383,6 +383,26 @@ class ReaderViewModelSpec {
         }
 
     @Test
+    fun aBookGoneFromTheServerIsNotAskedForAgainOnEveryPage() =
+        runTest(dispatcher) {
+            local(0.4)
+            server.html = io.ktor.http.HttpStatusCode.NotFound
+            val vm = vm()
+            until { server.gets.size == 2 } // progress and bookmarks
+            settle()
+            openNavigator(vm)
+            vm.onLocatorChanged(locator(0.45))
+            advanceTimeBy(3_100.milliseconds)
+            settle()
+            vm.onStop()
+            settle()
+            assertEquals(2, server.gets.size)
+            assertEquals(0, server.puts.size)
+            assertTrue(enqueued.isEmpty())
+            assertEquals(0.45, row()!!.totalProgression, 0.0) // still saved here
+        }
+
+    @Test
     fun locatorChangesSaveAtOnceAndOnStopFlushes() =
         runTest(dispatcher) {
             local(0.5)

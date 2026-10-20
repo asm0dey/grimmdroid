@@ -47,7 +47,7 @@ interface PositionUploadHost {
     val downloadRepository: DownloadRepository
 }
 
-/** Uploads one account's pending positions and bookmarks; HELD_BACK is done until the next reading session or a manual action. */
+/** Uploads one account's pending positions and bookmarks; HELD_BACK and REJECTED are done until the next reading session or a manual action. */
 class PositionUploadWorker(
     context: Context,
     params: WorkerParameters,

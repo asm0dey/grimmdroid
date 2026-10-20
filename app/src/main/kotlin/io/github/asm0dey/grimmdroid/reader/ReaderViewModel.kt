@@ -20,6 +20,7 @@ package io.github.asm0dey.grimmdroid.reader
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
+import io.github.asm0dey.grimmdroid.api.ServerCall
 import io.github.asm0dey.grimmdroid.api.callServer
 import io.github.asm0dey.grimmdroid.api.valueOrNull
 import io.github.asm0dey.grimmdroid.reader.cfi.EpubArchive
@@ -154,6 +155,9 @@ class ReaderViewModel(
         val start = openedAt ?: return false
         return now != start // exact: a few pages of a long book are within SAME_PLACE, and still the user's
     }
+
+    // The server refused this book's progress (400/403/404/410) this session; the position is still saved here.
+    @Volatile private var rejected = false
 
     private var save: Job? = null
     private var toggling: Job? = null
@@ -339,11 +343,13 @@ class ReaderViewModel(
     }
 
     private suspend fun upload() {
+        if (rejected) return // the server refused this book for good: not asked again on every page
         // Offline: leave it to the worker, which waits for a network.
         if (!online.value) return sync.uploadLater(accountId)
         val id = fileId.await() ?: return // not a downloaded book: nothing the server can take
         val archive = archive.await() ?: return
-        withContext(io) { sync.upload(accountId, bookId, id) { archive.cfiForLocator(it) } }
+        val result = withContext(io) { sync.upload(accountId, bookId, id) { archive.cfiForLocator(it) } }
+        if (result == UploadResult.REJECTED) rejected = true
     }
 
     /** Null offline, on any server failure, or when the server has no position. */
@@ -351,7 +357,9 @@ class ReaderViewModel(
         if (!online.value) return null
         val api = api() ?: return null
         val archive = archive.await() ?: return null
-        val dto = callServer { api.progress(bookId) }.valueOrNull() ?: return null
+        val got = callServer { api.progress(bookId) }
+        if (got == ServerCall.Rejected) rejected = true
+        val dto = got.valueOrNull() ?: return null
         return withContext(io) { serverPosition(dto, archive) }
     }
 

@@ -299,6 +299,36 @@ class BookmarksTest {
         }
 
     @Test
+    fun aRefusedCreateStaysHereWithoutRetrying() =
+        runBlocking {
+            server.html = HttpStatusCode.BadRequest
+            bookmarks.add(account, BOOK, locator, CFI, "t")
+            assertEquals(BookmarkState.PENDING_CREATE, rows().single().state)
+            assertTrue(enqueued.isEmpty())
+            assertTrue(bookmarks.flush(account))
+        }
+
+    @Test
+    fun aRefusedDeleteDeletesHere() =
+        runBlocking {
+            bookmarks.add(account, BOOK, locator, CFI, "t")
+            server.html = HttpStatusCode.Forbidden
+            bookmarks.remove(rows().single())
+            assertTrue(rows().isEmpty())
+            assertTrue(dao.pendingBookmarks().isEmpty())
+            assertTrue(enqueued.isEmpty())
+        }
+
+    @Test
+    fun aServerErrorIsRetried() =
+        runBlocking {
+            server.html = HttpStatusCode.ServiceUnavailable
+            bookmarks.add(account, BOOK, locator, CFI, "t")
+            assertEquals(listOf(account), enqueued)
+            assertFalse(bookmarks.flush(account))
+        }
+
+    @Test
     fun signedOutOrRemovedAccountsSendNothing() =
         runBlocking {
             val signedOut = account(signedOut = true)

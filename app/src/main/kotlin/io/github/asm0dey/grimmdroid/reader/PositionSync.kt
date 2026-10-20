@@ -22,6 +22,7 @@ import io.github.asm0dey.grimmdroid.api.BookProgressDto
 import io.github.asm0dey.grimmdroid.api.FileProgressDto
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
 import io.github.asm0dey.grimmdroid.api.GrimmoryJson
+import io.github.asm0dey.grimmdroid.api.ServerCall
 import io.github.asm0dey.grimmdroid.api.UpdateProgressDto
 import io.github.asm0dey.grimmdroid.api.callServer
 import io.github.asm0dey.grimmdroid.api.valueOrNull
@@ -128,7 +129,8 @@ fun decideOnSyncNow(
         OpenDecision.Stay
     }
 
-enum class UploadResult { SENT, HELD_BACK, FAILED }
+/** REJECTED: the server will never take this book's position (gone, or refused); the row stays pending here. */
+enum class UploadResult { SENT, HELD_BACK, FAILED, REJECTED }
 
 private fun locator(json: String): JsonObject? =
     try {
@@ -200,7 +202,8 @@ class PositionSync(
      * Uploads the pending position. NORMAL never overwrites a server position further ahead (HELD_BACK, still pending);
      * FORCE always does. [cfi] maps the uploaded row's locator JSON to a CFI. Nothing pending counts as SENT.
      * A missing or signed-out account is FAILED with no request and nothing enqueued: only a sign-in can help.
-     * Other failures enqueue a follow-up run unless [enqueueOnFailure] is false (the worker retries by itself).
+     * Other failures enqueue a follow-up run unless [enqueueOnFailure] is false (the worker retries by itself);
+     * a permanent refusal (400/403/404/410) is REJECTED and enqueues nothing.
      */
     suspend fun upload(
         accountId: Long,
@@ -214,24 +217,29 @@ class PositionSync(
         val api = api(account)
         // shortcut: a server CFI without any percentage isn't weighed (it needs the archive); Grimmory sends both.
         if (row.pending == PendingUpload.NORMAL) {
-            val dto = callServer { api.progress(bookId) }.valueOrNull() ?: return failed(accountId, enqueueOnFailure)
+            val got = callServer { api.progress(bookId) }
+            val dto = got.valueOrNull() ?: return failed(got, accountId, enqueueOnFailure)
             val server = furthest(dto)
             if (server != null && server - row.totalProgression > SAME_PLACE) return UploadResult.HELD_BACK
         }
         // A signed-out account (SessionExpiredException) fails too: the worker then returns success and keeps the row.
-        callServer {
-            val body =
-                FileProgressDto(bookFileId, cfi(row.locatorJson), locatorHref(row.locatorJson), (row.totalProgression * 100).toFloat())
-            api.putProgress(bookId, UpdateProgressDto(body))
-        }.valueOrNull() ?: return failed(accountId, enqueueOnFailure)
+        val put =
+            callServer {
+                val body =
+                    FileProgressDto(bookFileId, cfi(row.locatorJson), locatorHref(row.locatorJson), (row.totalProgression * 100).toFloat())
+                api.putProgress(bookId, UpdateProgressDto(body))
+            }
+        if (put !is ServerCall.Ok) return failed(put, accountId, enqueueOnFailure)
         dao.markUploaded(accountId, bookId, row.updatedAt, row.locatorJson)
         return UploadResult.SENT
     }
 
     private fun failed(
+        call: ServerCall<*>,
         accountId: Long,
         enqueueOnFailure: Boolean,
     ): UploadResult {
+        if (call == ServerCall.Rejected) return UploadResult.REJECTED // retrying only costs requests
         if (enqueueOnFailure) uploadLater(accountId)
         return UploadResult.FAILED
     }

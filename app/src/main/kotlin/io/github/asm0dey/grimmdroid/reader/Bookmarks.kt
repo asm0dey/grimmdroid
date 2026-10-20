@@ -21,14 +21,13 @@ import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.api.BookmarkDto
 import io.github.asm0dey.grimmdroid.api.CreateBookmarkDto
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
+import io.github.asm0dey.grimmdroid.api.ServerCall
 import io.github.asm0dey.grimmdroid.api.callServer
 import io.github.asm0dey.grimmdroid.api.valueOrNull
 import io.github.asm0dey.grimmdroid.reader.cfi.EpubArchive
 import io.github.asm0dey.grimmdroid.reader.cfi.parseCfi
 import io.github.asm0dey.grimmdroid.reader.cfi.resolve
 import io.github.asm0dey.grimmdroid.reader.cfi.spineIndex
-import io.ktor.client.plugins.ClientRequestException
-import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -178,7 +177,8 @@ class Bookmarks(
 
     /**
      * Sends one pending change; true when nothing is left to retry. A missing or signed-out account is true: only a
-     * sign-in helps, and the row stays pending for then. A bookmark without a CFI never goes to the server.
+     * sign-in helps, and the row stays pending for then. A bookmark without a CFI never goes to the server, nor
+     * does one the server refused (400/403/404/410): it stays here, pending, and is only tried again by a later flush.
      */
     private suspend fun send(row: BookmarkRow): Boolean {
         val api = apiFor(row.accountId) ?: return true
@@ -189,20 +189,17 @@ class Bookmarks(
 
             BookmarkState.PENDING_CREATE -> {
                 val cfi = row.cfi ?: return true
-                val created =
-                    callServer { api.createBookmark(CreateBookmarkDto(row.bookId, cfi, row.title)) }.valueOrNull() ?: return false
-                dao.updateBookmark(row.copy(serverId = created.id, state = BookmarkState.SYNCED))
+                when (val created = callServer { api.createBookmark(CreateBookmarkDto(row.bookId, cfi, row.title)) }) {
+                    is ServerCall.Ok -> dao.updateBookmark(row.copy(serverId = created.value.id, state = BookmarkState.SYNCED))
+                    ServerCall.Failed -> return false
+                    ServerCall.Rejected -> Unit // the server won't take it: kept here, like one without a CFI
+                }
             }
 
             BookmarkState.PENDING_DELETE -> {
                 val id = checkNotNull(row.serverId) { "PENDING_DELETE without a server id" }
-                callServer {
-                    try {
-                        api.deleteBookmark(id)
-                    } catch (e: ClientRequestException) {
-                        if (e.response.status != HttpStatusCode.NotFound) throw e // already gone there
-                    }
-                }.valueOrNull() ?: return false
+                // Rejected (404: already gone there; 400/403: never deletable): the user wanted it gone here anyway.
+                if (callServer { api.deleteBookmark(id) } == ServerCall.Failed) return false
                 dao.deleteBookmark(row.localId)
             }
         }
