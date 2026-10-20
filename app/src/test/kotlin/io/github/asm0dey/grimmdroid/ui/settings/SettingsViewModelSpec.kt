@@ -216,6 +216,15 @@ class SettingsViewModelSpec {
         }
 
     @Test
+    fun aFolderThatIsNotATreeShowsItsPathInsteadOfCrashing() =
+        runBlocking<Unit> {
+            val (id, _) = accountWithBook()
+            settings.setCurrentAccountId(id)
+            folderExport.setFolder(id, Uri.parse("content://tree/books"))
+            withTimeout(5_000) { vm.folderName.first { it == "books" } }
+        }
+
+    @Test
     fun removalFinishesEvenWhenSettingsIsClosedMidWay() =
         runBlocking {
             val (id, _) = accountWithBook()

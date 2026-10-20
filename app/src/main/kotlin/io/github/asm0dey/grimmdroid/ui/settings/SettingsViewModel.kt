@@ -107,7 +107,18 @@ class SettingsViewModel(
         refreshCoverSize()
     }
 
-    private fun displayName(uri: Uri) = DocumentFile.fromTreeUri(app, uri)?.name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment
+    private fun displayName(uri: Uri): String? {
+        // A URI that isn't a tree, or a folder whose permission was revoked, falls back to the path.
+        val name =
+            try {
+                DocumentFile.fromTreeUri(app, uri)?.name
+            } catch (_: IllegalArgumentException) {
+                null
+            } catch (_: SecurityException) {
+                null
+            }
+        return name?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment
+    }
 
     private fun refreshCoverSize() {
         viewModelScope.launch { _coverBytes.value = withContext(Dispatchers.IO) { coverCacheSize() } }
