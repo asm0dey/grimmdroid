@@ -1,5 +1,7 @@
 # Grimmdroid
 
+![Grimmdroid Icon](fastlane/metadata/android/en-US/images/icon.png)
+
 Native Android client for the [Grimmory](https://github.com/grimmory-tools/grimmory) self-hosted book server.
 Browse your libraries and shelves, search the catalogue, and download books to read in the reader app you
 already use (Grimmdroid has no reader of its own). Android 8.0 (API 26) or newer.
