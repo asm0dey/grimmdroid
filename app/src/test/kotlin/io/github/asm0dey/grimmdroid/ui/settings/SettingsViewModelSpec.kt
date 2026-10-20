@@ -46,9 +46,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
@@ -159,8 +161,16 @@ class SettingsViewModelSpec {
     @Test
     fun choosingSaveToFolderPersistsIt() =
         runBlocking {
+            val subscribed = CompletableDeferred<Unit>()
+            val saved =
+                async {
+                    settings.afterDownload.onEach { subscribed.complete(Unit) }.first { it == AfterDownloadAction.SAVE_TO_FOLDER }
+                }
+            // DataStore 1.2.1 can strand a collector whose first read overlaps a write (fixed in 1.3.0),
+            // so let ours read its start state before the write begins.
+            subscribed.await()
             vm.setAfterDownload(AfterDownloadAction.SAVE_TO_FOLDER)
-            withTimeout(5_000) { settings.afterDownload.first { it == AfterDownloadAction.SAVE_TO_FOLDER } }
+            withTimeout(5_000) { saved.await() }
             Unit
         }
 
