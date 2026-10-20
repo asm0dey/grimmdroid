@@ -42,6 +42,10 @@ run = "./gradlew spotlessApply"
 description = "Assemble the debug APK"
 run = "./gradlew assembleDebug"
 
+[tasks.release-debug-signed]
+description = "Assemble the release APK signed with the debug key (local testing only)"
+run = "./gradlew assembleRelease -PdebugSigned"
+
 [tasks.lint-ci]
 description = "Lint GitHub Actions workflows"
 run = "actionlint"

@@ -6,11 +6,11 @@ platform :android do
     gradle(tasks: ["spotlessCheck", "lint", "testDebugUnitTest"])
   end
 
-  desc "Build a signed release APK (signing from GRIMMDROID_* env vars)"
+  desc "Build a signed release APK and AAB (signing from GRIMMDROID_* env vars)"
   lane :release do
     %w[GRIMMDROID_KEYSTORE GRIMMDROID_KEYSTORE_PASSWORD GRIMMDROID_KEY_ALIAS GRIMMDROID_KEY_PASSWORD].each do |name|
       UI.user_error!("#{name} is not set") if ENV[name].to_s.empty?
     end
-    gradle(task: "assemble", build_type: "Release")
+    gradle(tasks: ["assembleRelease", "bundleRelease"])
   end
 end

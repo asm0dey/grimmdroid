@@ -40,7 +40,13 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.findByName("release")
+            // -PdebugSigned: local release build signed with the debug key, installable over debug.
+            signingConfig =
+                if (providers.gradleProperty("debugSigned").isPresent) {
+                    signingConfigs.getByName("debug")
+                } else {
+                    signingConfigs.findByName("release")
+                }
         }
     }
 
