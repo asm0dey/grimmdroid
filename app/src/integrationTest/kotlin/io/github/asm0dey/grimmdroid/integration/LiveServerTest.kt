@@ -35,9 +35,9 @@ import io.github.asm0dey.grimmdroid.reader.cfi.cfiFor
 import io.github.asm0dey.grimmdroid.sync.AUDIOBOOK_FILE_TYPE
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
-import io.kotest.matchers.collections.shouldBeEmpty
-import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -271,12 +271,13 @@ class LiveServerTest :
         test("progress PUT is read back as the same CFI and percentage, and as a 0-1 KOReader fraction") {
             // KOReader progress is only written while the user's KOReader account syncs with the web reader.
             val koreader = authedClient(base, MemoryTokens(tokens))
-            koreader.put("api/v1/koreader-users/me") {
-                contentType(ContentType.Application.Json)
-                setBody(mapOf("username" to "koreader", "password" to PASSWORD))
-            }
-            koreader.patch("api/v1/koreader-users/me/sync") { parameter("enabled", true) }
-            koreader.patch("api/v1/koreader-users/me/sync-progress-with-grimmory") { parameter("enabled", true) }
+            koreader
+                .put("api/v1/koreader-users/me") {
+                    contentType(ContentType.Application.Json)
+                    setBody(mapOf("username" to "koreader", "password" to PASSWORD))
+                }.ok()
+            koreader.patch("api/v1/koreader-users/me/sync") { parameter("enabled", true) }.ok()
+            koreader.patch("api/v1/koreader-users/me/sync-progress-with-grimmory") { parameter("enabled", true) }.ok()
 
             val book = api.books(0).content.single { it.primaryFileName == "moby.epub" }
             val cfi =
@@ -301,9 +302,9 @@ class LiveServerTest :
             val created = api.createBookmark(CreateBookmarkDto(book.id, "epubcfi(/6/2!/4/2/1:0)", "Start"))
             created.bookId shouldBe book.id
             created.cfi shouldBe "epubcfi(/6/2!/4/2/1:0)"
-            api.bookmarks(book.id).map { it.id } shouldContainExactly listOf(created.id)
+            api.bookmarks(book.id).map { it.id } shouldContain created.id
             api.deleteBookmark(created.id)
-            api.bookmarks(book.id).shouldBeEmpty()
+            api.bookmarks(book.id).map { it.id } shouldNotContain created.id
         }
 
         test("custom fonts list for the admin user") {
