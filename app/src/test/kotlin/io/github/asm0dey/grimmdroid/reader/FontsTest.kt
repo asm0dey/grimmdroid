@@ -183,4 +183,22 @@ class FontsTest {
             fonts.delete(imported)
             assertEquals(emptyList<ReaderFont>(), fonts.list(ACCOUNT))
         }
+
+    @Test
+    fun deleteRefusesFilesOutsideTheImportedDir() =
+        runBlocking {
+            fonts.syncServer(ACCOUNT)
+            val server = fonts.list(ACCOUNT).first()
+            fonts.delete(server.copy(fromServer = false))
+            assertTrue(server.file.exists())
+
+            val outside = Files.createTempFile("other", ".ttf").toFile()
+            fonts.delete(ReaderFont("other", outside, fromServer = false))
+            assertTrue(outside.exists())
+            val traversal = filesDir.resolve("fonts/local/../$ACCOUNT/${server.file.name}")
+            fonts.delete(ReaderFont("x", traversal, fromServer = false))
+            assertTrue(server.file.exists())
+            outside.delete()
+            Unit
+        }
 }

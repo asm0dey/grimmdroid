@@ -148,9 +148,10 @@ class Fonts(
             }
         }
 
-    /** Deletes an imported font; the server's are only removed by a sync. */
+    /** Deletes an imported font; the server's are only removed by a sync, and nothing outside `fonts/local/` is touched. */
     fun delete(font: ReaderFont) {
-        if (!font.fromServer) font.file.delete()
+        // Only a file directly in the imported dir, whatever the caller's flags or path say.
+        if (font.file.canonicalFile.parentFile == local.canonicalFile) font.file.delete()
     }
 
     private fun displayName(

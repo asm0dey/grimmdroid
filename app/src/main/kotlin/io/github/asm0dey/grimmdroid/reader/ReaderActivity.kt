@@ -126,8 +126,9 @@ class ReaderActivity : FragmentActivity() {
     private val fontStore get() = (application as GrimmdroidApp).container.fonts
     private val accountId get() = intent.getLongExtra(EXTRA_ACCOUNT_ID, -1)
 
-    // The custom fonts the navigator declares; a change recreates it.
+    // The custom fonts on the phone, and those the latest navigator factory declared (null before the first one).
     private var fonts by mutableStateOf(emptyList<ReaderFont>())
+    private var declaredFonts: List<ReaderFont>? = null
     private val pickFont =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri == null) return@registerForActivityResult
@@ -204,6 +205,7 @@ class ReaderActivity : FragmentActivity() {
             // Only after the book opened once in this process, so the DataStore already holds the settings in memory.
             settings = runBlocking { settingsStore.settings.first() }
         }
+        fonts = fontStore.list(accountId) // a few file names, declared by the navigator created next
         supportFragmentManager.fragmentFactory =
             open?.let { navigatorFactory(it, vm.navigatorStart(it)) } ?: EpubNavigatorFragment.createDummyFactory()
         supportFragmentManager.registerFragmentLifecycleCallbacks(
@@ -221,7 +223,6 @@ class ReaderActivity : FragmentActivity() {
             false,
         )
         publication = open
-        fonts = fontStore.list(accountId) // a few file names, needed by the navigator created below
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -289,22 +290,25 @@ class ReaderActivity : FragmentActivity() {
     private fun navigatorFactory(
         pub: Publication,
         initial: Locator?,
-    ) = EpubNavigatorFactory(pub, readerNavigatorConfiguration(resources.configuration.fontScale)).createFragmentFactory(
-        initialLocator = initial,
-        initialPreferences = settings.toEpubPreferences(systemDark),
-        listener = navigatorListener,
-        paginationListener = paginationListener,
-        configuration = readerFragmentConfiguration(fonts),
-    )
+    ) = EpubNavigatorFactory(pub, readerNavigatorConfiguration(resources.configuration.fontScale))
+        .also {
+            declaredFonts = fonts
+        }.createFragmentFactory(
+            initialLocator = initial,
+            initialPreferences = settings.toEpubPreferences(systemDark),
+            listener = navigatorListener,
+            paginationListener = paginationListener,
+            configuration = readerFragmentConfiguration(fonts),
+        )
 
     /** Re-reads the custom fonts; when they changed, recreates the navigator at the current place so it declares them. */
     private suspend fun refreshFonts() {
-        val now = withContext(Dispatchers.IO) { fontStore.list(accountId) }
-        if (now == fonts) return
-        fonts = now
-        val pub = publication ?: return // the navigator is created later, with these fonts
-        if (navigator == null) return
+        fonts = withContext(Dispatchers.IO) { fontStore.list(accountId) }
+        // No factory yet: the first one is built with these fonts. A factory whose commit is still pending counts too.
+        val pub = publication ?: return
+        if (declaredFonts == null || declaredFonts == fonts) return
         withStarted {
+            if (declaredFonts == fonts) return@withStarted // another refresh got here first
             supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub))
             supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
         }
