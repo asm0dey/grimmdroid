@@ -17,10 +17,14 @@
  */
 package io.github.asm0dey.grimmdroid.catalog
 
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import io.github.asm0dey.grimmdroid.account.AccountDao
 import io.github.asm0dey.grimmdroid.account.AccountEntity
+import io.github.asm0dey.grimmdroid.reader.BookmarkRow
+import io.github.asm0dey.grimmdroid.reader.ReaderDao
+import io.github.asm0dey.grimmdroid.reader.ReadingPosition
 
 @Database(
     entities =
@@ -32,12 +36,17 @@ import io.github.asm0dey.grimmdroid.account.AccountEntity
             ShelfEntity::class,
             ShelfBookCrossRef::class,
             DownloadEntity::class,
+            ReadingPosition::class,
+            BookmarkRow::class,
         ],
-    version = 1,
+    version = 2,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
     exportSchema = true,
 )
 abstract class CatalogDb : RoomDatabase() {
     abstract fun accountDao(): AccountDao
 
     abstract fun catalogDao(): CatalogDao
+
+    abstract fun readerDao(): ReaderDao
 }

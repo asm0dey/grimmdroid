@@ -61,6 +61,7 @@ fun httpClient(
     json: Json = GrimmoryJson,
 ): HttpClient = HttpClient(engine) { install(ContentNegotiation) { json(json) } }
 
+/** Implementations may be called concurrently (the per-account authed client is shared by sync, downloads, covers and the reader) and must be thread-safe. */
 interface TokenSource {
     suspend fun current(): Tokens?
 

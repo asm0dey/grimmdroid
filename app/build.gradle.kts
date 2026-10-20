@@ -5,6 +5,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+kotlin {
+    compilerOptions {
+        optIn.add("org.readium.r2.shared.ExperimentalReadiumApi")
+    }
+}
+
 android {
     namespace = "io.github.asm0dey.grimmdroid"
     compileSdk = 37
@@ -41,6 +47,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+        // Readium 3.4.0 refuses to build without core library desugaring.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     // JVM-only integration tests compile with the unit tests but run only in integrationTest (needs a live server).
@@ -48,6 +56,11 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        // Readium ships Timber's lint checks; the app logs with android.util.Log.
+        disable += "LogNotTimber"
     }
 
     testOptions {
@@ -58,8 +71,17 @@ android {
                 // Robolectric's Android 17 (SDK 37) sandbox reaches into jdk.internal.access.
                 it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
                 it.exclude("io/github/asm0dey/grimmdroid/integration/**")
+                it.systemProperty("grimmdroid.fixtures", rootProject.file("integration/fixtures").path)
             }
         }
+    }
+}
+
+// MigrationTestHelper reads the exported schemas as assets, and Robolectric serves only the main variant's merged
+// assets, so the debug build (never release) carries them.
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.sources.assets?.addStaticSourceDirectory("$projectDir/schemas")
     }
 }
 
@@ -96,17 +118,24 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.browser)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.fragment.ktx)
+    implementation(libs.readium.shared)
+    implementation(libs.readium.streamer)
+    implementation(libs.readium.navigator)
+    implementation(libs.jsoup)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     testImplementation(libs.kotest.runner.junit6)
     testImplementation(libs.kotest.assertions.core)
     testImplementation(libs.ktor.client.mock)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.junit4)
+    testImplementation(libs.androidx.room.testing)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.androidx.work.testing)
-    testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)
     testImplementation(libs.androidx.test.espresso.core)
     testRuntimeOnly(libs.junit.vintage.engine)

@@ -32,11 +32,13 @@ import io.github.asm0dey.grimmdroid.catalog.DownloadState
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.expectSuccess
 import io.ktor.client.request.prepareGet
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -110,71 +112,98 @@ class DownloadRepository(
         dao.upsertDownload(row)
         var part: File? = null
         try {
-            val file =
+            val (file, size) =
                 withContext(Dispatchers.IO) {
                     if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Cannot create $dir")
                     http(accountId).prepareGet(url) { expectSuccess = false }.execute { response ->
-                        if (response.status == HttpStatusCode.Forbidden) throw NoDownloadPermission()
-                        if (!response.status.isSuccess()) throw IOException("Download failed: HTTP ${response.status}")
-                        val name = safeFileName(parseContentDisposition(response.headers[HttpHeaders.ContentDisposition]) ?: "", fallback)
-                        val target = File(dir, name)
-                        // Defence in depth: safeFileName already yields one path component.
-                        if (target.canonicalFile.parentFile != dir.canonicalFile) throw IOException("Unsafe file name")
-                        val tmp = File(dir, "$name.part").also { part = it }
-                        val total = response.contentLength() ?: -1L
-                        val channel = response.bodyAsChannel()
-                        var received = 0L
-                        var lastPercent = -1L
-                        if (total < 0) onProgress(-1f)
-                        tmp.outputStream().use { out ->
-                            val buf = ByteArray(64 * 1024)
-                            while (true) {
-                                val n = channel.readAvailable(buf, 0, buf.size)
-                                if (n < 0) break
-                                out.write(buf, 0, n)
-                                received += n
-                                if (total > 0 && received * 100 / total != lastPercent) {
-                                    lastPercent = received * 100 / total
-                                    val p = received.toFloat() / total
-                                    onProgress(p)
-                                    dao.setDownloadProgress(accountId, bookId, p)
-                                }
-                            }
+                        save(response, dir, fallback, onPart = { part = it }) { p ->
+                            onProgress(p)
+                            if (p in 0f..<1f) dao.setDownloadProgress(accountId, bookId, p)
                         }
-                        if (total >= 0 && received != total) throw IOException("Connection closed after $received of $total bytes")
-                        Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-                        // Only now drop the earlier copy (possibly under another name) and any stale .part files.
-                        dir.listFiles()?.filter { it != target }?.forEach { it.deleteRecursively() }
-                        row = row.copy(fileName = name, path = target.path, sizeBytes = received, state = DownloadState.DONE, progress = 1f)
-                        if (total < 0) onProgress(1f)
-                        target
                     }
                 }
+            row = row.copy(fileName = file.name, path = file.path, sizeBytes = size, state = DownloadState.DONE, progress = 1f)
             dao.upsertDownload(row)
             return file
-        } catch (e: CancellationException) {
-            // Cancelled: back to the earlier copy if there is one, else forget the download so the UI offers Download again.
-            withContext(NonCancellable) {
-                part?.delete()
-                dao.deleteBookDownloads(accountId, bookId)
-                previous?.takeIf { File(it.path).exists() }?.let { dao.upsertDownload(it) }
-            }
-            throw e
         } catch (e: Exception) {
+            // Cancelled or failed: back to the earlier copy if there is one; else a failure is marked FAILED and a
+            // cancellation forgets the download, so the UI offers Download again.
             withContext(NonCancellable) {
-                part?.delete()
                 val kept = previous?.takeIf { File(it.path).exists() }
-                if (kept != null) {
-                    dao.deleteBookDownloads(accountId, bookId)
-                    dao.upsertDownload(kept)
-                } else {
-                    dao.upsertDownload(row.copy(state = DownloadState.FAILED))
+                when {
+                    kept != null -> {
+                        dao.deleteBookDownloads(accountId, bookId)
+                        dao.upsertDownload(kept)
+                    }
+
+                    e is CancellationException -> {
+                        dao.deleteBookDownloads(accountId, bookId)
+                    }
+
+                    else -> {
+                        dao.upsertDownload(row.copy(state = DownloadState.FAILED))
+                    }
                 }
+                part?.let { Files.deleteIfExists(it.toPath()) }
             }
             throw e
         } finally {
             if (job != null) active.remove(key, job)
         }
+    }
+
+    /**
+     * Writes [response] to a `.part` file (handed to [onPart] for cleanup), then moves it into place and drops the
+     * earlier copy; returns the file and its size. [onProgress] gets -1 for an unknown length, each whole percent, and 1.
+     */
+    private suspend fun save(
+        response: HttpResponse,
+        dir: File,
+        fallback: String,
+        onPart: (File) -> Unit,
+        onProgress: suspend (Float) -> Unit,
+    ): Pair<File, Long> {
+        if (response.status == HttpStatusCode.Forbidden) throw NoDownloadPermission()
+        if (!response.status.isSuccess()) throw IOException("Download failed: HTTP ${response.status}")
+        val name = safeFileName(parseContentDisposition(response.headers[HttpHeaders.ContentDisposition]) ?: "", fallback)
+        val target = File(dir, name)
+        // Defence in depth: safeFileName already yields one path component.
+        if (target.canonicalFile.parentFile != dir.canonicalFile) throw IOException("Unsafe file name")
+        val tmp = File(dir, "$name.part").also(onPart)
+        val total = response.contentLength() ?: -1L
+        if (total < 0) onProgress(-1f)
+        val received = copy(response.bodyAsChannel(), tmp, total, onProgress)
+        if (total >= 0 && received != total) throw IOException("Connection closed after $received of $total bytes")
+        Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        // Only now drop the earlier copy (possibly under another name) and any stale .part files.
+        dir.listFiles()?.filter { it != target }?.forEach { it.deleteRecursively() }
+        if (total < 0) onProgress(1f)
+        return target to received
+    }
+
+    /** Copies [channel] into [tmp], reporting each whole percent of a known [total]; returns the bytes written. */
+    private suspend fun copy(
+        channel: ByteReadChannel,
+        tmp: File,
+        total: Long,
+        onProgress: suspend (Float) -> Unit,
+    ): Long {
+        var received = 0L
+        var lastPercent = -1L
+        tmp.outputStream().use { out ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = channel.readAvailable(buf, 0, buf.size)
+                if (n < 0) break
+                out.write(buf, 0, n)
+                received += n
+                if (total > 0 && received * 100 / total != lastPercent) {
+                    lastPercent = received * 100 / total
+                    onProgress(received.toFloat() / total)
+                }
+            }
+        }
+        return received
     }
 
     /** Stops a queued or running download of the book first, then removes its files and row. */
@@ -206,6 +235,7 @@ class DownloadRepository(
         bookId: Long,
         fileId: Long?,
         isPrimary: Boolean,
+        readAfter: Boolean = false,
     ) {
         val input =
             workDataOf(
@@ -213,6 +243,7 @@ class DownloadRepository(
                 DownloadWorker.KEY_BOOK_ID to bookId,
                 DownloadWorker.KEY_FILE_ID to (fileId ?: -1L),
                 DownloadWorker.KEY_PRIMARY to isPrimary,
+                DownloadWorker.KEY_READ_AFTER to readAfter,
             )
         WorkManager.getInstance(context).enqueueUniqueWork(
             workName(accountId, bookId),

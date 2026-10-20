@@ -17,20 +17,27 @@
  */
 package io.github.asm0dey.grimmdroid.integration
 
+import io.github.asm0dey.grimmdroid.api.CreateBookmarkDto
+import io.github.asm0dey.grimmdroid.api.FileProgressDto
 import io.github.asm0dey.grimmdroid.api.GrimmoryApi
 import io.github.asm0dey.grimmdroid.api.ProbeResult
 import io.github.asm0dey.grimmdroid.api.ServerProbe
 import io.github.asm0dey.grimmdroid.api.TokenSource
 import io.github.asm0dey.grimmdroid.api.Tokens
+import io.github.asm0dey.grimmdroid.api.UpdateProgressDto
 import io.github.asm0dey.grimmdroid.api.authedClient
 import io.github.asm0dey.grimmdroid.api.httpClient
 import io.github.asm0dey.grimmdroid.auth.LoginResult
 import io.github.asm0dey.grimmdroid.auth.PasswordLogin
 import io.github.asm0dey.grimmdroid.download.parseContentDisposition
+import io.github.asm0dey.grimmdroid.reader.cfi.EpubArchive
+import io.github.asm0dey.grimmdroid.reader.cfi.cfiFor
 import io.github.asm0dey.grimmdroid.sync.AUDIOBOOK_FILE_TYPE
 import io.kotest.assertions.withClue
 import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -40,7 +47,10 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
+import io.ktor.client.request.parameter
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsBytes
@@ -72,20 +82,22 @@ private const val USER = "admin"
 private const val PASSWORD = "integration-pass"
 
 private class MemoryTokens(
-    @Volatile var tokens: Tokens?,
+    private var tokens: Tokens?,
 ) : TokenSource {
-    val saved = mutableListOf<Tokens>()
+    private val lock = Any()
+    private val saved = mutableListOf<Tokens>()
 
-    override suspend fun current() = tokens
+    fun savedSnapshot(): List<Tokens> = synchronized(lock) { saved.toList() }
 
-    override suspend fun save(t: Tokens) {
-        saved += t
-        tokens = t
-    }
+    override suspend fun current() = synchronized(lock) { tokens }
 
-    override suspend fun expired() {
-        tokens = null
-    }
+    override suspend fun save(t: Tokens) =
+        synchronized(lock) {
+            saved += t
+            tokens = t
+        }
+
+    override suspend fun expired() = synchronized(lock) { tokens = null }
 }
 
 private suspend fun until(
@@ -252,8 +264,52 @@ class LiveServerTest :
             if (wait > 0) delay(wait)
             val store = MemoryTokens(fresh.copy(accessToken = "expired.${fresh.accessToken.substringAfter('.')}"))
             GrimmoryApi(authedClient(base, store)).me().isAdmin shouldBe true
-            store.saved.size shouldBe 1
-            store.saved.single().refreshToken shouldNotBe fresh.refreshToken
+            store.savedSnapshot().size shouldBe 1
+            store.savedSnapshot().single().refreshToken shouldNotBe fresh.refreshToken
+        }
+
+        test("progress PUT is read back as the same CFI and percentage, and as a 0-1 KOReader fraction") {
+            // KOReader progress is only written while the user's KOReader account syncs with the web reader.
+            val koreader = authedClient(base, MemoryTokens(tokens))
+            koreader
+                .put("api/v1/koreader-users/me") {
+                    contentType(ContentType.Application.Json)
+                    setBody(mapOf("username" to "koreader", "password" to PASSWORD))
+                }.ok()
+            koreader.patch("api/v1/koreader-users/me/sync") { parameter("enabled", true) }.ok()
+            koreader.patch("api/v1/koreader-users/me/sync-progress-with-grimmory") { parameter("enabled", true) }.ok()
+
+            val book = api.books(0).content.single { it.primaryFileName == "moby.epub" }
+            val cfi =
+                EpubArchive(File(fixtures, "moby.epub")).use { epub ->
+                    val at = 0.375 * epub.spine.size
+                    epub.cfiFor(epub.spine[at.toInt()], null, at - at.toInt()).shouldNotBeNull()
+                }
+            api.putProgress(
+                book.id,
+                UpdateProgressDto(FileProgressDto(book.primaryFileId.shouldNotBeNull(), positionData = cfi, progressPercent = 37.5f)),
+            )
+
+            val progress = api.progress(book.id)
+            // Also pins that the server returns the percentage together with the CFI (PositionSync relies on it).
+            progress.epubProgress?.cfi shouldBe cfi
+            progress.epubProgress?.percentage shouldBe 37.5f
+            progress.koreaderProgress?.percentage shouldBe 0.375f
+        }
+
+        test("bookmark create, list and delete") {
+            val book = api.books(0).content.single { it.primaryFileName == "pride.epub" }
+            val created = api.createBookmark(CreateBookmarkDto(book.id, "epubcfi(/6/2!/4/2/1:0)", "Start"))
+            created.bookId shouldBe book.id
+            created.cfi shouldBe "epubcfi(/6/2!/4/2/1:0)"
+            api.bookmarks(book.id).map { it.id } shouldContain created.id
+            api.deleteBookmark(created.id)
+            api.bookmarks(book.id).map { it.id } shouldNotContain created.id
+        }
+
+        test("custom fonts list for the admin user") {
+            // Null would mean 403; the admin holds every permission, so the server answers a (possibly empty) list.
+            api.customFonts().shouldNotBeNull()
         }
 
         test("OIDC state endpoint returns a state") {

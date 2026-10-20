@@ -17,6 +17,10 @@
  */
 package io.github.asm0dey.grimmdroid.ui.details
 
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.work.WorkInfo
 import androidx.work.workDataOf
 import io.github.asm0dey.grimmdroid.account.AccountEntity
@@ -28,9 +32,11 @@ import io.github.asm0dey.grimmdroid.download.DownloadWorker
 import io.github.asm0dey.grimmdroid.export.FolderResult
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
@@ -66,6 +72,9 @@ class DetailsViewModelSpec :
             queried: MutableList<Long> = mutableListOf(),
             books: Flow<BookEntity?> = flowOf(book),
             load: suspend (Long) -> BookDetailDto = { BookDetailDto(it) },
+            readAfter: MutableList<Boolean> = mutableListOf(),
+            opens: MutableSharedFlow<DetailsEvent> = MutableSharedFlow(extraBufferCapacity = 1),
+            pendingScope: CoroutineScope = CoroutineScope(dispatcher),
         ) = DetailsViewModel(
             1,
             7,
@@ -81,10 +90,15 @@ class DetailsViewModelSpec :
                 fetches += id
                 load(id)
             },
-            { _, _, fileId, _ -> enqueued += fileId },
+            { _, _, fileId, _, read ->
+                enqueued += fileId
+                readAfter += read
+            },
             { _, _ -> },
             { _, _ -> },
             { _, _ -> FolderResult.NeedsFolder },
+            opens,
+            pendingScope,
         )
 
         test("share before download enqueues the primary file and shares exactly once when it lands") {
@@ -100,6 +114,101 @@ class DetailsViewModelSpec :
                 rows.value = row(DownloadState.DONE)
                 rows.value = row(DownloadState.DONE).copy(sizeBytes = 11)
                 events shouldBe listOf(DetailsEvent.Share(file, "Moby Dick"))
+            }
+        }
+
+        test("read before download enqueues the primary file to read and opens it exactly once when it lands") {
+            runTest(dispatcher) {
+                val rows = MutableStateFlow<DownloadEntity?>(null)
+                val enqueued = mutableListOf<Long?>()
+                val readAfter = mutableListOf<Boolean>()
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
+                val vm = vm(rows, enqueued, readAfter = readAfter, opens = opens, pendingScope = backgroundScope)
+                vm.read()
+                enqueued shouldBe listOf(42L)
+                readAfter shouldBe listOf(true)
+                rows.value = row(DownloadState.RUNNING)
+                rows.value = row(DownloadState.DONE)
+                rows.value = row(DownloadState.DONE).copy(sizeBytes = 11)
+                opened shouldBe listOf(DetailsEvent.Read(1, 7, file))
+            }
+        }
+
+        test("cancelling drops the pending read") {
+            runTest(dispatcher) {
+                val rows = MutableStateFlow<DownloadEntity?>(null)
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
+                val vm = vm(rows, opens = opens, pendingScope = backgroundScope)
+                vm.read()
+                rows.value = row(DownloadState.RUNNING)
+                vm.cancel()
+                rows.value = row(DownloadState.DONE)
+                opened shouldBe emptyList()
+            }
+        }
+
+        test("open with before download opens it with another app once it lands, without the read flag") {
+            runTest(dispatcher) {
+                val rows = MutableStateFlow<DownloadEntity?>(null)
+                val readAfter = mutableListOf<Boolean>()
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
+                val vm = vm(rows, readAfter = readAfter, opens = opens, pendingScope = backgroundScope)
+                vm.openWith()
+                readAfter shouldBe listOf(false)
+                rows.value = row(DownloadState.RUNNING)
+                rows.value = row(DownloadState.DONE)
+                opened shouldBe listOf(DetailsEvent.OpenWith(file))
+            }
+        }
+
+        test("read on a downloaded book opens it at once without downloading") {
+            runTest(dispatcher) {
+                val enqueued = mutableListOf<Long?>()
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
+                val vm = vm(MutableStateFlow(row(DownloadState.DONE)), enqueued, opens = opens, pendingScope = backgroundScope)
+                vm.read()
+                vm.openWith()
+                enqueued shouldBe emptyList()
+                opened shouldBe listOf(DetailsEvent.Read(1, 7, file), DetailsEvent.OpenWith(file))
+            }
+        }
+
+        test("an open with nobody collecting is dropped, not delivered to a later collector") {
+            runTest(dispatcher) {
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val vm = vm(MutableStateFlow(row(DownloadState.DONE)), opens = opens, pendingScope = backgroundScope)
+                vm.read()
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
+                opened shouldBe emptyList()
+            }
+        }
+
+        test("a pending read outlives the details screen") {
+            runTest(dispatcher) {
+                val rows = MutableStateFlow<DownloadEntity?>(null)
+                val opens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+                val opened = mutableListOf<DetailsEvent>()
+                backgroundScope.launch { opens.toList(opened) }
+                val store = ViewModelStore()
+                val vm =
+                    ViewModelProvider.create(
+                        store,
+                        viewModelFactory { initializer { vm(rows, opens = opens, pendingScope = backgroundScope) } },
+                    )[DetailsViewModel::class]
+                vm.read()
+                rows.value = row(DownloadState.RUNNING)
+                store.clear()
+                rows.value = row(DownloadState.DONE)
+                opened shouldBe listOf(DetailsEvent.Read(1, 7, file))
             }
         }
 
@@ -158,7 +267,7 @@ class DetailsViewModelSpec :
                     vm.state.value.failure shouldBe null
                 }
                 // Without pending work the vanished file just offers Download again.
-                vm(MutableStateFlow(gone)).state.value.action shouldBe PrimaryAction.Download
+                vm(MutableStateFlow(gone)).state.value.action shouldBe PrimaryAction.Download(readable = true)
             }
         }
 
@@ -168,7 +277,7 @@ class DetailsViewModelSpec :
                 for (work in listOf(flowOf(null), flowOf(done))) {
                     for (state in listOf(DownloadState.QUEUED, DownloadState.RUNNING)) {
                         val vm = vm(MutableStateFlow(row(state)), work = work)
-                        vm.state.value.action shouldBe PrimaryAction.Download
+                        vm.state.value.action shouldBe PrimaryAction.Download(readable = true)
                         vm.state.value.failure shouldBe null
                     }
                 }
@@ -186,7 +295,7 @@ class DetailsViewModelSpec :
                     )
                 val vm = vm(MutableStateFlow(row(DownloadState.FAILED)), work = flowOf(failed))
                 vm.state.value.failure shouldBe DownloadWorker.ERROR_NETWORK
-                vm.state.value.action shouldBe PrimaryAction.Download
+                vm.state.value.action shouldBe PrimaryAction.Download(readable = true)
             }
         }
 

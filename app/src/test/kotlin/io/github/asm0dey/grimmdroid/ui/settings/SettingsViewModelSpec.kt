@@ -39,6 +39,9 @@ import io.github.asm0dey.grimmdroid.catalog.DownloadState
 import io.github.asm0dey.grimmdroid.download.DownloadRepository
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
 import io.github.asm0dey.grimmdroid.export.FolderExport
+import io.github.asm0dey.grimmdroid.reader.PendingUpload
+import io.github.asm0dey.grimmdroid.reader.PositionSync
+import io.github.asm0dey.grimmdroid.reader.ReadingPosition
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import kotlinx.coroutines.CompletableDeferred
@@ -87,6 +90,8 @@ class SettingsViewModelSpec {
     private lateinit var vm: SettingsViewModel
     private lateinit var folderExport: FolderExport
     private lateinit var sync: LibrarySync
+    private val enqueuedUploads = mutableListOf<Long>()
+    private lateinit var positionSync: PositionSync
     private val store = ViewModelStore()
     private val dropped = mutableListOf<Long>()
     private var dropFails = false
@@ -108,6 +113,7 @@ class SettingsViewModelSpec {
         accounts = AccountRepository(db.accountDao(), XorCipher, settings)
         folderExport = FolderExport(ctx, settings)
         sync = LibrarySync(db.catalogDao(), accounts, { error("no network in this test") }, System::currentTimeMillis)
+        positionSync = PositionSync(db.readerDao(), accounts::account, { error("no network in this test") }) { enqueuedUploads += it }
         val factory =
             viewModelFactory {
                 initializer {
@@ -116,8 +122,10 @@ class SettingsViewModelSpec {
                         accounts,
                         settings,
                         db.catalogDao(),
+                        db.readerDao(),
                         DownloadRepository(db.catalogDao(), { error("no network in this test") }, dir),
                         sync,
+                        positionSync,
                         folderExport,
                         dropClient = {
                             if (dropFails) throw IllegalStateException("boom")
@@ -178,7 +186,9 @@ class SettingsViewModelSpec {
     fun signOutWithDeleteRemovesAccountRowsFilesAndTokens() =
         runBlocking {
             val (id, file) = accountWithBook()
+            db.readerDao().upsertPosition(ReadingPosition(id, BOOK, "{}", 0.5, PendingUpload.NONE, 1))
             vm.signOutNow(id, removeAccount = true)
+            assertNull(db.readerDao().position(id, BOOK))
             assertNull(accounts.account(id))
             assertNull(accounts.tokenSource(id).current())
             assertFalse(file.exists())
@@ -203,6 +213,15 @@ class SettingsViewModelSpec {
             assertNotNull(db.catalogDao().download(id, BOOK).first())
             assertNotNull(db.catalogDao().book(id, BOOK).first())
             assertEquals(0, coverClears)
+        }
+
+    @Test
+    fun aFolderThatIsNotATreeShowsItsPathInsteadOfCrashing() =
+        runBlocking<Unit> {
+            val (id, _) = accountWithBook()
+            settings.setCurrentAccountId(id)
+            folderExport.setFolder(id, Uri.parse("content://tree/books"))
+            withTimeout(5_000) { vm.folderName.first { it == "books" } }
         }
 
     @Test
@@ -262,5 +281,18 @@ class SettingsViewModelSpec {
             assertTrue(id in sync.state.value)
             vm.signOutNow(id, removeAccount = true)
             assertFalse(id in sync.state.value)
+        }
+
+    @Test
+    fun signOutAndRemovalLetTheNextOfflineReadEnqueueAgain() =
+        runBlocking {
+            for (remove in listOf(false, true)) {
+                val (id, _) = accountWithBook()
+                positionSync.uploadLater(id) // read offline: the worker waits for a network
+                vm.signOutNow(id, removeAccount = remove) // ...and is cancelled
+                enqueuedUploads.clear()
+                positionSync.uploadLater(id)
+                assertEquals(listOf(id), enqueuedUploads)
+            }
         }
 }

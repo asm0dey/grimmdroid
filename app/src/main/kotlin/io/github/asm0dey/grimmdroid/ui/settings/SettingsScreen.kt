@@ -74,16 +74,21 @@ import kotlinx.coroutines.launch
 // Assumed upstream repository; update if the project moves.
 private const val SOURCE_URL = "https://github.com/asm0dey/grimmdroid"
 
+private const val APACHE_2 = "Apache License 2.0"
+
 /** The FOSS libraries in gradle/libs.versions.toml; kept by hand (no licence plugin). */
 private val LICENCES =
     listOf(
-        "AndroidX (Core, Activity, Compose, Navigation, Lifecycle, Room, Paging, DataStore, WorkManager, Browser, DocumentFile)" to
-            "Apache License 2.0",
-        "Kotlin, kotlinx.coroutines, kotlinx.serialization" to "Apache License 2.0",
-        "Ktor" to "Apache License 2.0",
-        "OkHttp, Okio" to "Apache License 2.0",
-        "Coil" to "Apache License 2.0",
-        "Material Symbols (icons)" to "Apache License 2.0",
+        "AndroidX (Core, Activity, Fragment, Compose, Navigation, Lifecycle, Room, Paging, DataStore, WorkManager, Browser, " +
+            "DocumentFile)" to APACHE_2,
+        "Kotlin, kotlinx.coroutines, kotlinx.serialization" to APACHE_2,
+        "Ktor" to APACHE_2,
+        "OkHttp, Okio" to APACHE_2,
+        "Coil" to APACHE_2,
+        "Readium Kotlin Toolkit" to "BSD 3-Clause License",
+        "jsoup" to "MIT License",
+        "Android desugar_jdk_libs" to "GPL 2.0 with Classpath Exception",
+        "Material Symbols (icons)" to APACHE_2,
     )
 
 @OptIn(ExperimentalMaterial3Api::class)

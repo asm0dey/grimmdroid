@@ -19,7 +19,9 @@ package io.github.asm0dey.grimmdroid
 
 import android.content.Context
 import android.util.Log
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
 import coil3.ImageLoader
@@ -43,14 +45,21 @@ import io.github.asm0dey.grimmdroid.export.AfterDownload
 import io.github.asm0dey.grimmdroid.export.Exporter
 import io.github.asm0dey.grimmdroid.export.FolderExport
 import io.github.asm0dey.grimmdroid.net.Connectivity
+import io.github.asm0dey.grimmdroid.reader.Bookmarks
+import io.github.asm0dey.grimmdroid.reader.Fonts
+import io.github.asm0dey.grimmdroid.reader.PositionSync
+import io.github.asm0dey.grimmdroid.reader.ReaderSettingsStore
+import io.github.asm0dey.grimmdroid.reader.enqueuePositionUpload
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
+import io.github.asm0dey.grimmdroid.ui.details.DetailsEvent
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.first
 import okio.Path.Companion.toOkioPath
 import java.util.concurrent.ConcurrentHashMap
@@ -72,10 +81,24 @@ class AppContainer(
     /** One-shot: a sign-out or account removal failed part-way; AppNav shows a snackbar. */
     val signOutFailures = Channel<Unit>(Channel.CONFLATED)
 
+    /**
+     * Books to open in the reader or another app ([DetailsEvent.Read] / [DetailsEvent.OpenWith]); AppNav opens them.
+     * No replay: with no UI collecting, an open is dropped (the notification carries it) rather than popping up later.
+     */
+    val bookOpens = MutableSharedFlow<DetailsEvent>(extraBufferCapacity = 1)
+
     val db: CatalogDb = Room.databaseBuilder(app, CatalogDb::class.java, "catalog.db").build()
 
     // One DataStore per file, in the default files/datastore/ dir that the backup rules exclude.
     val settings = SettingsStore(PreferenceDataStoreFactory.create { app.preferencesDataStoreFile("settings") })
+
+    // A corrupted file would make every reader open throw; the reader's look is cheap to lose.
+    val readerSettings =
+        ReaderSettingsStore(
+            PreferenceDataStoreFactory.create(corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }) {
+                app.preferencesDataStoreFile("reader")
+            },
+        )
     val pendingOidc = PendingOidcStore(PreferenceDataStoreFactory.create { app.preferencesDataStoreFile("oidc") })
 
     val accounts = AccountRepository(db.accountDao(), KeystoreTokenCipher(), settings)
@@ -114,6 +137,14 @@ class AppContainer(
         LibrarySync(db.catalogDao(), accounts, ::api, System::currentTimeMillis) { accountId, bookId ->
             downloadRepository.delete(app, accountId, bookId)
         }
+    val positionSync =
+        PositionSync(db.readerDao(), accounts::account, ::api) { id ->
+            enqueuePositionUpload(app, id)
+        }
+
+    // Shares the position worker and its "follow-up queued" guard: the worker flushes both.
+    val bookmarks = Bookmarks(db.readerDao(), accounts::account, ::api, positionSync::uploadLater)
+    val fonts = Fonts(app.filesDir) { id -> accounts.account(id)?.takeUnless { it.signedOut }?.let(::api) }
     val exporter = Exporter(app)
     val folderExport = FolderExport(app, settings)
     val afterDownload = AfterDownload(settings, folderExport)

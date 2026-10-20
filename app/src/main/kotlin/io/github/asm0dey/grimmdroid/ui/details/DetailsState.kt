@@ -25,7 +25,10 @@ import java.util.Locale
 
 /** What the details screen's button area shows, one at a time. */
 sealed interface PrimaryAction {
-    data object Download : PrimaryAction
+    /** [readable]: the primary file, the one Read downloads, is an EPUB. */
+    data class Download(
+        val readable: Boolean,
+    ) : PrimaryAction
 
     /** [progress] is 0..1, or -1 when the size is unknown. */
     data class Downloading(
@@ -35,6 +38,8 @@ sealed interface PrimaryAction {
     data class Downloaded(
         val file: File,
         val sizeLabel: String,
+        /** The file on the phone is an EPUB the reader can open. */
+        val readable: Boolean,
     ) : PrimaryAction
 
     data object NoPermission : PrimaryAction
@@ -53,12 +58,29 @@ fun primaryAction(
     online: Boolean,
 ): PrimaryAction =
     when {
-        book.isAudiobook -> PrimaryAction.Audiobook
-        !(canDownload || isAdmin) -> PrimaryAction.NoPermission
-        download?.state == DownloadState.DONE && file?.exists() == true -> PrimaryAction.Downloaded(file, sizeLabel(download.sizeBytes))
-        download?.state == DownloadState.QUEUED || download?.state == DownloadState.RUNNING -> PrimaryAction.Downloading(download.progress)
-        !online -> PrimaryAction.Offline
-        else -> PrimaryAction.Download
+        book.isAudiobook -> {
+            PrimaryAction.Audiobook
+        }
+
+        !(canDownload || isAdmin) -> {
+            PrimaryAction.NoPermission
+        }
+
+        download?.state == DownloadState.DONE && file?.exists() == true -> {
+            PrimaryAction.Downloaded(file, sizeLabel(download.sizeBytes), file.extension.equals("epub", ignoreCase = true))
+        }
+
+        download?.state == DownloadState.QUEUED || download?.state == DownloadState.RUNNING -> {
+            PrimaryAction.Downloading(download.progress)
+        }
+
+        !online -> {
+            PrimaryAction.Offline
+        }
+
+        else -> {
+            PrimaryAction.Download(book.primaryFileType.equals("epub", ignoreCase = true))
+        }
     }
 
 /** Decimal units like Android's Formatter, but usable without a Context: "1.2 MB". */
