@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -179,8 +180,14 @@ fun LibraryContent(
         }
 
         if (groups != null && mode != LibraryMode.BOOKS) {
-            val list by groups.groups.collectAsState()
-            GroupsList(list, if (mode == LibraryMode.AUTHORS) onAuthor else onSeries, Modifier.weight(1f))
+            val listing by groups.listing.collectAsState()
+            // Until the view model catches up with this mode, show nothing rather than the previous mode's groups.
+            val list = listing.groups?.takeIf { listing.mode == mode }
+            if (list == null) {
+                Spacer(Modifier.weight(1f))
+            } else {
+                GroupsList(list, if (mode == LibraryMode.AUTHORS) onAuthor else onSeries, Modifier.weight(1f))
+            }
         } else {
             BookGrid(books, grid, layout, query.sort, baseUrl, onBook, Modifier.weight(1f))
         }

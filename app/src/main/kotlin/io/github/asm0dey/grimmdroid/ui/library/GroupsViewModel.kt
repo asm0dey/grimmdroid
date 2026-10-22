@@ -37,11 +37,18 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 
 enum class LibraryMode { BOOKS, AUTHORS, SERIES }
 
 private val ByName = compareBy(String.CASE_INSENSITIVE_ORDER, Group::name).thenBy { it.name }
+
+/** The groups listed for [mode]; [groups] is null while that mode's data loads, so a switch never shows another mode's list. */
+data class GroupListing(
+    val mode: LibraryMode,
+    val groups: List<Group>?,
+)
 
 /** The Library tab's author and series lists; [libraryId] mirrors the library filter of the books view. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -53,22 +60,37 @@ class GroupsViewModel(
     val notStartedOnly = MutableStateFlow(false)
     val libraryId = MutableStateFlow<Long?>(null)
 
-    private val all: Flow<List<Group>> =
+    private val all: Flow<GroupListing> =
         mode.flatMapLatest { mode ->
-            when (mode) {
-                LibraryMode.BOOKS -> flowOf(emptyList())
-                LibraryMode.SERIES -> seriesBooks.map { books -> books.groupBy { it.seriesName!! }.map { (n, b) -> b.toGroup(n) } }
-                LibraryMode.AUTHORS -> authorPairs.map { pairs -> pairs.groupBy({ it.name }, { it.book }).map { (n, b) -> b.toGroup(n) } }
-            }
+            val groups: Flow<List<Group>?> =
+                when (mode) {
+                    LibraryMode.BOOKS -> {
+                        flowOf(emptyList())
+                    }
+
+                    LibraryMode.SERIES -> {
+                        seriesBooks.map { books -> books.groupBy { it.seriesName!! }.map { (n, b) -> b.toGroup(n) } }
+                    }
+
+                    LibraryMode.AUTHORS -> {
+                        authorPairs.map { pairs ->
+                            pairs.groupBy({ it.name }, { it.book }).map { (n, b) -> b.toGroup(n) }
+                        }
+                    }
+                }
+            groups.onStart { emit(null) }.map { GroupListing(mode, it) }
         }
 
     // The library only picks which groups are listed; counts still cover every book in the group.
-    val groups: StateFlow<List<Group>> =
-        combine(all, libraryId, notStartedOnly) { groups, lib, notStarted ->
-            groups
-                .filter { g -> (lib == null || g.books.any { it.libraryId == lib }) && !(notStarted && g.started) }
-                .sortedWith(ByName)
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val listing: StateFlow<GroupListing> =
+        combine(all, libraryId, notStartedOnly) { listing, lib, notStarted ->
+            listing.copy(
+                groups =
+                    listing.groups
+                        ?.filter { g -> (lib == null || g.books.any { it.libraryId == lib }) && !(notStarted && g.started) }
+                        ?.sortedWith(ByName),
+            )
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, GroupListing(LibraryMode.BOOKS, emptyList()))
 
     companion object {
         fun factory(container: AppContainer) =

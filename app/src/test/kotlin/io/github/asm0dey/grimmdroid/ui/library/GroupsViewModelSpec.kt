@@ -23,6 +23,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -48,10 +49,11 @@ class GroupsViewModelSpec :
             runTest(dispatcher) {
                 val series = MutableStateFlow(listOf(book(1, status = "READ"), book(2, library = 2), book(3, series = "Other")))
                 val vm = GroupsViewModel(series, MutableStateFlow(emptyList()))
-                backgroundScope.launch { vm.groups.collect {} }
+                backgroundScope.launch { vm.listing.collect {} }
                 vm.mode.value = LibraryMode.SERIES
                 vm.libraryId.value = 2
-                vm.groups.value.map { Triple(it.name, it.readCount, it.total) } shouldBe listOf(Triple("S", 1, 2))
+                vm.listing.value.groups!!
+                    .map { Triple(it.name, it.readCount, it.total) } shouldBe listOf(Triple("S", 1, 2))
             }
         }
 
@@ -67,11 +69,13 @@ class GroupsViewModelSpec :
                         ),
                     )
                 val vm = GroupsViewModel(series, MutableStateFlow(emptyList()))
-                backgroundScope.launch { vm.groups.collect {} }
+                backgroundScope.launch { vm.listing.collect {} }
                 vm.mode.value = LibraryMode.SERIES
-                vm.groups.value.map { it.name } shouldBe listOf("D", "S")
+                vm.listing.value.groups!!
+                    .map { it.name } shouldBe listOf("D", "S")
                 vm.notStartedOnly.value = true
-                vm.groups.value.map { it.name } shouldBe listOf("D")
+                vm.listing.value.groups!!
+                    .map { it.name } shouldBe listOf("D")
             }
         }
 
@@ -87,18 +91,35 @@ class GroupsViewModelSpec :
                         ),
                     )
                 val vm = GroupsViewModel(MutableStateFlow(emptyList()), pairs)
-                backgroundScope.launch { vm.groups.collect {} }
+                backgroundScope.launch { vm.listing.collect {} }
                 vm.mode.value = LibraryMode.AUTHORS
-                vm.groups.value.map { Triple(it.name, it.readCount, it.total) } shouldBe
+                vm.listing.value.groups!!
+                    .map { Triple(it.name, it.readCount, it.total) } shouldBe
                     listOf(Triple("A Writer", 1, 2), Triple("a Writer", 0, 1), Triple("b Writer", 0, 1))
+            }
+        }
+
+        test("switching from authors to series never lists the authors as series") {
+            runTest(dispatcher) {
+                val series = MutableSharedFlow<List<BookEntity>>()
+                val vm = GroupsViewModel(series, MutableStateFlow(listOf(AuthorBook("Writer", book(1)))))
+                backgroundScope.launch { vm.listing.collect {} }
+                vm.mode.value = LibraryMode.AUTHORS
+                vm.listing.value.groups!!
+                    .map { it.name } shouldBe listOf("Writer")
+                vm.mode.value = LibraryMode.SERIES
+                vm.listing.value shouldBe GroupListing(LibraryMode.SERIES, null)
+                series.emit(listOf(book(2)))
+                vm.listing.value.groups!!
+                    .map { it.name } shouldBe listOf("S")
             }
         }
 
         test("books mode lists no groups") {
             runTest(dispatcher) {
                 val vm = GroupsViewModel(MutableStateFlow(listOf(book(1))), MutableStateFlow(emptyList()))
-                backgroundScope.launch { vm.groups.collect {} }
-                vm.groups.value shouldBe emptyList()
+                backgroundScope.launch { vm.listing.collect {} }
+                vm.listing.value.groups shouldBe emptyList()
             }
         }
     })
