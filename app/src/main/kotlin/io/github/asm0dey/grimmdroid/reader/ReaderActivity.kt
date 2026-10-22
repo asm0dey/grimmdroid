@@ -24,6 +24,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -124,6 +125,11 @@ class ReaderActivity : FragmentActivity() {
 
     private val settingsStore get() = (application as GrimmdroidApp).container.readerSettings
     private val fontStore get() = (application as GrimmdroidApp).container.fonts
+
+    private val appSettings get() = (application as GrimmdroidApp).container.settings
+
+    // The app setting; the edge-tap adapter takes it when the navigator is bound.
+    private var animatePageTurns = false
     private val accountId get() = intent.getLongExtra(EXTRA_ACCOUNT_ID, -1)
 
     // The custom fonts on the phone, and those the latest navigator factory declared (null before the first one).
@@ -210,6 +216,7 @@ class ReaderActivity : FragmentActivity() {
         if (open != null) {
             // Only after the book opened once in this process, so the DataStore already holds the settings in memory.
             settings = runBlocking { settingsStore.settings.first() }
+            animatePageTurns = runBlocking { appSettings.animatePageTurns.first() }
         }
         fonts = fontStore.list(accountId) // a few file names, declared by the navigator created next
         supportFragmentManager.fragmentFactory =
@@ -263,6 +270,7 @@ class ReaderActivity : FragmentActivity() {
                 applySettings()
             }
         }
+        lifecycleScope.launch { appSettings.animatePageTurns.collect { animatePageTurns = it } }
         lifecycleScope.launch {
             val madeCurrent = getString(R.string.position_made_current)
             vm.madeCurrent.collect { Toast.makeText(this@ReaderActivity, madeCurrent, Toast.LENGTH_SHORT).show() }
@@ -335,7 +343,9 @@ class ReaderActivity : FragmentActivity() {
 
     private fun bind(navigator: EpubNavigatorFragment) {
         // Edge taps turn pages; the middle third toggles the chrome.
-        navigator.addInputListener(DirectionalNavigationAdapter(navigator, horizontalEdgeThresholdPercent = 1.0 / 3))
+        navigator.addInputListener(
+            DirectionalNavigationAdapter(navigator, horizontalEdgeThresholdPercent = 1.0 / 3, animatedTransition = animatePageTurns),
+        )
         navigator.addInputListener(
             object : InputListener {
                 override fun onTap(event: TapEvent): Boolean {
@@ -502,6 +512,48 @@ class ReaderActivity : FragmentActivity() {
                 msPerPosition = vm.pace.msPerPosition, // changes only with the locator, which recomposes this
             )
         Box(Modifier.fillMaxSize()) { StatusBar(items, inputs, palette, Modifier.align(Alignment.BottomCenter)) }
+    }
+
+    // Volume down turns forward, up back; the reader keeps the keys, so the volume stays put. A held key turns once.
+    override fun onKeyDown(
+        keyCode: Int,
+        event: KeyEvent,
+    ): Boolean {
+        val forward = volumeForward(keyCode) ?: return super.onKeyDown(keyCode, event)
+        val navigator = navigator ?: return super.onKeyDown(keyCode, event)
+        if (event.repeatCount == 0 && navigatorReady) turnPage(navigator, forward)
+        return true
+    }
+
+    override fun onKeyUp(
+        keyCode: Int,
+        event: KeyEvent,
+    ): Boolean = (volumeForward(keyCode) != null && navigator != null) || super.onKeyUp(keyCode, event)
+
+    private fun volumeForward(keyCode: Int) =
+        when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_DOWN -> true
+            KeyEvent.KEYCODE_VOLUME_UP -> false
+            else -> null
+        }
+
+    private fun turnPage(
+        navigator: EpubNavigatorFragment,
+        forward: Boolean,
+    ) {
+        fun go() = if (forward) navigator.goForward(animatePageTurns) else navigator.goBackward(animatePageTurns)
+        if (!scrolled) {
+            go()
+            return
+        }
+        // Scrolled, goForward jumps a whole chapter: scroll a screen, and change chapter only at its end.
+        lifecycleScope.launch {
+            val moved =
+                navigator.evaluateJavascript(
+                    "(() => { const y = scrollY; scrollBy(0, ${if (forward) "" else "-"}innerHeight); return scrollY !== y })()",
+                )
+            if (moved != "true") go()
+        }
     }
 
     override fun onStop() {

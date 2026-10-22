@@ -145,6 +145,9 @@
     <string name="theme_dark">Dark</string>
     <string name="dynamic_colour">Dynamic colour</string>
     <string name="dynamic_colour_hint">Use colours from your wallpaper</string>
+    <string name="section_reading">Reading</string>
+    <string name="animate_page_turns">Animate page turns</string>
+    <string name="animate_page_turns_hint">Slide to the next page on a tap or volume key</string>
     <string name="section_storage">Storage</string>
     <string name="downloaded_books">Downloaded books</string>
     <string name="cover_cache">Cover cache</string>
