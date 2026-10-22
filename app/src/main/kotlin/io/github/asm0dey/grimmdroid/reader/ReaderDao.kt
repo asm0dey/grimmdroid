@@ -36,12 +36,21 @@ abstract class ReaderDao {
     @Upsert
     abstract suspend fun upsertPosition(p: ReadingPosition)
 
-    /** Upserts [p], but a position already waiting for a FORCE upload keeps FORCE. */
+    /** Upserts [p] and mirrors its progress onto the cached book, but a position already waiting for a FORCE upload keeps FORCE. */
     @Transaction
     open suspend fun savePosition(p: ReadingPosition) {
         val force = position(p.accountId, p.bookId)?.pending == PendingUpload.FORCE
         upsertPosition(if (force) p.copy(pending = PendingUpload.FORCE) else p)
+        setBookProgress(p.accountId, p.bookId, (p.totalProgression * 100).toFloat(), p.updatedAt)
     }
+
+    @Query("UPDATE BookEntity SET readProgress = :percent, lastReadTime = :at WHERE accountId = :accountId AND id = :bookId")
+    abstract suspend fun setBookProgress(
+        accountId: Long,
+        bookId: Long,
+        percent: Float,
+        at: Long,
+    )
 
     @Query("UPDATE ReadingPosition SET pending = 'FORCE' WHERE accountId = :accountId AND bookId = :bookId")
     abstract suspend fun forcePosition(
