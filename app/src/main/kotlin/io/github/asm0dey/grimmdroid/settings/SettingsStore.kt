@@ -32,6 +32,16 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 enum class Layout { GRID, LIST }
 
+enum class StartScreen { HOME, LIBRARY, LAST_BOOK, LAST_PLACE }
+
+/** The book the reader opened last; [open] stays true until the reader is left with Back. */
+data class LastBook(
+    val accountId: Long,
+    val bookId: Long,
+    val file: String,
+    val open: Boolean,
+)
+
 class SettingsStore(
     private val store: DataStore<Preferences>,
 ) {
@@ -73,6 +83,45 @@ class SettingsStore(
         store.edit { it[LAYOUT] = layout.name }
     }
 
+    val startScreen: Flow<StartScreen> =
+        store.data.map { p -> StartScreen.entries.firstOrNull { it.name == p[START_SCREEN] } ?: StartScreen.HOME }
+
+    suspend fun setStartScreen(screen: StartScreen) {
+        store.edit { it[START_SCREEN] = screen.name }
+    }
+
+    /** The name of the bottom-bar tab shown last. */
+    val lastTab: Flow<String?> = store.data.map { it[LAST_TAB] }
+
+    suspend fun setLastTab(name: String) {
+        store.edit { it[LAST_TAB] = name }
+    }
+
+    val lastBook: Flow<LastBook?> =
+        store.data.map { p ->
+            val account = p[LAST_BOOK_ACCOUNT] ?: return@map null
+            val book = p[LAST_BOOK_ID] ?: return@map null
+            val file = p[LAST_BOOK_FILE] ?: return@map null
+            LastBook(account, book, file, p[READER_OPEN] ?: false)
+        }
+
+    suspend fun setLastBook(
+        accountId: Long,
+        bookId: Long,
+        file: String,
+    ) {
+        store.edit {
+            it[LAST_BOOK_ACCOUNT] = accountId
+            it[LAST_BOOK_ID] = bookId
+            it[LAST_BOOK_FILE] = file
+            it[READER_OPEN] = true
+        }
+    }
+
+    suspend fun setReaderClosed() {
+        store.edit { it[READER_OPEN] = false }
+    }
+
     /** The tree URI the user picked for [accountId]'s saved books, if any. */
     fun folderUri(accountId: Long): Flow<Uri?> = store.data.map { p -> p[folderKey(accountId)]?.let(Uri::parse) }
 
@@ -110,6 +159,12 @@ class SettingsStore(
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val ANIMATE_PAGE_TURNS = booleanPreferencesKey("animate_page_turns")
         val LAYOUT = stringPreferencesKey("library_layout")
+        val START_SCREEN = stringPreferencesKey("start_screen")
+        val LAST_TAB = stringPreferencesKey("last_tab")
+        val LAST_BOOK_ACCOUNT = longPreferencesKey("last_book_account")
+        val LAST_BOOK_ID = longPreferencesKey("last_book_id")
+        val LAST_BOOK_FILE = stringPreferencesKey("last_book_file")
+        val READER_OPEN = booleanPreferencesKey("reader_open")
 
         fun folderKey(accountId: Long) = stringPreferencesKey("folder_uri_$accountId")
 

@@ -123,7 +123,8 @@ class ReaderActivity : FragmentActivity() {
         }
     }
 
-    private val settingsStore get() = (application as GrimmdroidApp).container.readerSettings
+    private val container get() = (application as GrimmdroidApp).container
+    private val settingsStore get() = container.readerSettings
     private val fontStore get() = (application as GrimmdroidApp).container.fonts
 
     private val appSettings get() = (application as GrimmdroidApp).container.settings
@@ -237,6 +238,8 @@ class ReaderActivity : FragmentActivity() {
         )
         publication = open
         super.onCreate(savedInstanceState)
+        val file = intent.getStringExtra(EXTRA_FILE)!!
+        container.appScope.launch { container.settings.setLastBook(accountId, intent.getLongExtra(EXTRA_BOOK_ID, -1), file) }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             // The navigator pads its text by the cutout itself.
@@ -558,6 +561,8 @@ class ReaderActivity : FragmentActivity() {
 
     override fun onStop() {
         vm.onStop()
+        // Left with Back (or the book failed to open): "Last place" returns to the tabs, not this book.
+        if (isFinishing) container.appScope.launch { container.settings.setReaderClosed() }
         super.onStop()
     }
 

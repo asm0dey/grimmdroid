@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -69,6 +70,7 @@ import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.auth.OidcRedirects
 import io.github.asm0dey.grimmdroid.export.ExportResult
 import io.github.asm0dey.grimmdroid.reader.ReaderActivity
+import io.github.asm0dey.grimmdroid.settings.StartScreen
 import io.github.asm0dey.grimmdroid.sync.SyncState
 import io.github.asm0dey.grimmdroid.sync.scheduleSync
 import io.github.asm0dey.grimmdroid.ui.details.DetailsEvent
@@ -95,11 +97,13 @@ import io.github.asm0dey.grimmdroid.upload.IncomingBooks
 import io.github.asm0dey.grimmdroid.upload.UploadScreen
 import io.github.asm0dey.grimmdroid.upload.UploadViewModel
 import io.github.asm0dey.grimmdroid.upload.uploadViewModelFactory
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import java.io.File
 
-private enum class Tab(
+internal enum class Tab(
     val route: Any,
     @param:StringRes val label: Int,
     @param:DrawableRes val icon: Int,
@@ -200,6 +204,12 @@ fun AppNav(container: AppContainer) {
             }
         }
     ResetTabsOnAccountSwitch(nav, current?.id)
+    if (start == Home) ReopenLastPlace(container, nav)
+    // Saved only when a tab is chosen: Back passes through Home on the way out, which must not count as leaving on Home.
+    val selectTab: (Tab) -> Unit = {
+        nav.openTab(it.route, reselected = it == tab)
+        scope.launch { container.settings.setLastTab(it.name) }
+    }
     FinishSsoRedirects(container, nav)
 
     Scaffold(
@@ -245,7 +255,7 @@ fun AppNav(container: AppContainer) {
                     Tab.entries.forEach {
                         NavigationBarItem(
                             selected = it == tab,
-                            onClick = { nav.openTab(it.route, reselected = it == tab) },
+                            onClick = { selectTab(it) },
                             icon = { Icon(painterResource(it.icon), contentDescription = null) },
                             // One line even at the largest font: a wrapped label breaks mid-word and lifts the icon.
                             label = { Text(stringResource(it.label), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -269,7 +279,7 @@ fun AppNav(container: AppContainer) {
             composable<Home> {
                 val vm: HomeViewModel = viewModel(factory = HomeViewModel.factory(container))
                 HomeScreen(vm, baseUrl, onSearch = { nav.navigate(Search) }, onAccount = { sheetOpen = true }, onBook = openBook) {
-                    nav.openTab(if (it == Downloads) Downloads else Library, reselected = false)
+                    selectTab(if (it == Downloads) Tab.DOWNLOADS else Tab.LIBRARY)
                 }
             }
             composable<Library> {
@@ -413,6 +423,47 @@ private fun FinishSsoRedirects(
         }
     }
 }
+
+/** On a cold launch, opens the tab (and book) the start setting asks for. */
+@Composable
+private fun ReopenLastPlace(
+    container: AppContainer,
+    nav: NavController,
+) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var restored by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            // A shared book opens Upload instead.
+            if (IncomingBooks.incoming.value != null) {
+                restored = true
+                return@repeatOnLifecycle
+            }
+            val settings = container.settings
+            val choice = settings.startScreen.first()
+            val (target, book) =
+                launchFor(
+                    choice,
+                    settings.lastTab.first(),
+                    settings.lastBook.first(),
+                    container.accounts.current
+                        .first()
+                        ?.id,
+                ) { File(it).isFile }
+            if (!restored) {
+                if (target != Tab.HOME) nav.openTab(target.route, reselected = false)
+                book?.let { context.startActivity(ReaderActivity.intent(context, it.accountId, it.bookId, File(it.file))) }
+                restored = true
+            } else if (choice in RESTORES_TAB && target != Tab.HOME && nav.currentDestination?.hasRoute(Home::class) == true) {
+                // Backing out of the app passes through Home, and Android 12+ keeps the activity rather than finishing it.
+                nav.openTab(target.route, reselected = false)
+            }
+        }
+    }
+}
+
+private val RESTORES_TAB = setOf(StartScreen.LAST_BOOK, StartScreen.LAST_PLACE)
 
 /** Account-scoped destinations (details, shelves) must not survive a switch, so every tab starts over at its root. */
 @Composable
