@@ -21,7 +21,10 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.asm0dey.grimmdroid.catalog.BookEntity
 import io.github.asm0dey.grimmdroid.catalog.CatalogDb
+import io.github.asm0dey.grimmdroid.catalog.ReadState
+import io.github.asm0dey.grimmdroid.catalog.readState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -138,5 +141,36 @@ class ReaderDaoTest {
             assertEquals(emptyList<BookmarkRow>(), dao.bookmarks(1, 1).first())
             assertEquals(pos(account = 2), dao.position(2, 1))
             assertEquals(listOf("b"), dao.bookmarks(2, 1).first().map { it.title })
+        }
+
+    @Test
+    fun savingPositionUpdatesBookProgress() =
+        runBlocking {
+            val book =
+                BookEntity(
+                    1,
+                    1,
+                    "t",
+                    "a",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    10f,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    0,
+                )
+            db.catalogDao().upsertBooks(listOf(book))
+            dao.savePosition(pos().copy(totalProgression = 0.995))
+            val saved = db.catalogDao().book(1, 1).first()!!
+            assertEquals(99.5f, saved.readProgress!!, 0.001f)
+            assertEquals(7L, saved.lastReadTime)
+            assertEquals(ReadState.READ, saved.readState)
         }
 }

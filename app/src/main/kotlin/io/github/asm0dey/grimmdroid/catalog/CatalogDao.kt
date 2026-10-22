@@ -28,6 +28,9 @@ import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
+private const val OWN_POSITION =
+    "FROM ReadingPosition p WHERE p.accountId = BookEntity.accountId AND p.bookId = BookEntity.id"
+
 @Dao
 abstract class CatalogDao {
     @RawQuery(observedEntities = [BookEntity::class, ShelfBookCrossRef::class, DownloadEntity::class])
@@ -45,6 +48,67 @@ abstract class CatalogDao {
 
     @Upsert
     abstract suspend fun upsertBooks(books: List<BookEntity>)
+
+    @Query("DELETE FROM BookAuthor WHERE accountId = :accountId AND bookId IN (:bookIds)")
+    protected abstract suspend fun deleteAuthorsOf(
+        accountId: Long,
+        bookIds: List<Long>,
+    )
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    protected abstract suspend fun insertAuthors(authors: List<BookAuthor>)
+
+    @Query("DELETE FROM BookAuthor WHERE accountId = :accountId AND bookId NOT IN (SELECT id FROM BookEntity WHERE accountId = :accountId)")
+    protected abstract suspend fun deleteOrphanAuthors(accountId: Long)
+
+    @Query("DELETE FROM BookAuthor WHERE accountId = :accountId")
+    protected abstract suspend fun deleteAuthors(accountId: Long)
+
+    // Local positions waiting for upload are newer than the server's view, even when they go backwards.
+    @Query(
+        "UPDATE BookEntity SET readProgress = (SELECT p.totalProgression * 100 $OWN_POSITION), " +
+            "lastReadTime = (SELECT p.updatedAt $OWN_POSITION) " +
+            "WHERE accountId = :accountId AND EXISTS (SELECT 1 $OWN_POSITION AND p.pending != 'NONE')",
+    )
+    protected abstract suspend fun reapplyPendingPositions(accountId: Long)
+
+    /**
+     * Upserts [books] and replaces their author rows with [authors] (book id to names); names are trimmed, blanks and
+     * duplicates dropped. Books with a not-yet-uploaded local position keep that position's progress.
+     */
+    @Transaction
+    open suspend fun upsertBooksWithAuthors(
+        books: List<BookEntity>,
+        authors: Map<Long, List<String>>,
+    ) {
+        upsertBooks(books)
+        // One account per page; chunked deletes stay under SQLite's bound-variable limit.
+        books.groupBy { it.accountId }.forEach { (account, bs) ->
+            bs.map { it.id }.chunked(500).forEach { deleteAuthorsOf(account, it) }
+            insertAuthors(
+                bs.flatMap { b ->
+                    authors[b.id]
+                        .orEmpty()
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .distinct()
+                        .map { BookAuthor(account, b.id, it) }
+                },
+            )
+            reapplyPendingPositions(account)
+        }
+    }
+
+    /**
+     * True when pre-v3 data left books with authors but no author rows; a sync fills them. Only the latest generation
+     * counts: a kept downloaded book the server dropped can never get rows, so it must not trigger a sync forever.
+     */
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM BookEntity b WHERE b.accountId = :accountId AND b.authors != '' AND " +
+            "b.syncGeneration = (SELECT MAX(syncGeneration) FROM BookEntity WHERE accountId = :accountId) AND " +
+            "NOT EXISTS (SELECT 1 FROM BookAuthor a WHERE a.accountId = b.accountId AND a.bookId = b.id))",
+    )
+    abstract suspend fun needsAuthorBackfill(accountId: Long): Boolean
 
     @Query(
         "SELECT DISTINCT bookId FROM DownloadEntity WHERE accountId = :accountId AND bookId IN " +
@@ -82,6 +146,7 @@ abstract class CatalogDao {
         val dropped = unfinishedDownloadsOfAbsentBooks(accountId, generation)
         deleteAbsentUndownloadedBooks(accountId, generation)
         deleteOrphanDownloads(accountId)
+        deleteOrphanAuthors(accountId)
         return dropped
     }
 
@@ -91,8 +156,38 @@ abstract class CatalogDao {
         id: Long,
     ): Flow<BookEntity?>
 
+    @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND seriesName = :name")
+    abstract fun seriesBooks(
+        accountId: Long,
+        name: String,
+    ): Flow<List<BookEntity>>
+
+    @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND seriesName IS NOT NULL")
+    abstract fun seriesBooksAll(accountId: Long): Flow<List<BookEntity>>
+
+    @Query("SELECT name FROM BookAuthor WHERE accountId = :accountId AND bookId = :bookId ORDER BY rowid")
+    abstract fun bookAuthors(
+        accountId: Long,
+        bookId: Long,
+    ): Flow<List<String>>
+
     @Query(
-        "SELECT * FROM BookEntity WHERE accountId = :accountId AND lastReadTime IS NOT NULL AND readProgress < 100 " +
+        "SELECT b.* FROM BookEntity b JOIN BookAuthor a ON a.accountId = b.accountId AND a.bookId = b.id " +
+            "WHERE b.accountId = :accountId AND a.name = :name",
+    )
+    abstract fun authorBooks(
+        accountId: Long,
+        name: String,
+    ): Flow<List<BookEntity>>
+
+    @Query(
+        "SELECT a.name AS name, b.* FROM BookEntity b JOIN BookAuthor a ON a.accountId = b.accountId AND a.bookId = b.id " +
+            "WHERE b.accountId = :accountId",
+    )
+    abstract fun authorBookPairs(accountId: Long): Flow<List<AuthorBook>>
+
+    @Query(
+        "SELECT * FROM BookEntity WHERE accountId = :accountId AND lastReadTime IS NOT NULL AND readProgress < 99 " +
             "ORDER BY lastReadTime DESC LIMIT :limit",
     )
     abstract fun continueReading(
@@ -219,7 +314,7 @@ abstract class CatalogDao {
             "b.readProgress AS b_readProgress, b.primaryFileId AS b_primaryFileId, " +
             "b.primaryFileType AS b_primaryFileType, b.primaryFileName AS b_primaryFileName, " +
             "b.fileSizeKb AS b_fileSizeKb, b.coverUpdatedOn AS b_coverUpdatedOn, " +
-            "b.isAudiobook AS b_isAudiobook, b.syncGeneration AS b_syncGeneration " +
+            "b.isAudiobook AS b_isAudiobook, b.syncGeneration AS b_syncGeneration, b.readStatus AS b_readStatus " +
             "FROM DownloadEntity d JOIN BookEntity b ON b.accountId = d.accountId AND b.id = d.bookId " +
             "WHERE d.accountId = :accountId AND d.state = 'DONE' GROUP BY d.accountId, d.bookId ORDER BY MIN(d.rowid) DESC",
     )
@@ -241,6 +336,7 @@ abstract class CatalogDao {
     @Transaction
     open suspend fun deleteAccount(accountId: Long) {
         deleteBooks(accountId)
+        deleteAuthors(accountId)
         deleteLibraries(accountId)
         deleteShelves(accountId)
         deleteShelfMembers(accountId)

@@ -75,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.unit.dp
@@ -112,6 +113,8 @@ fun DetailsScreen(
     snackbar: SnackbarHostState,
     exporter: Exporter,
     setFolder: suspend (Uri) -> Unit,
+    onAuthor: (String) -> Unit,
+    onSeries: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     val s by vm.state.collectAsState()
@@ -209,7 +212,7 @@ fun DetailsScreen(
             Text(stringResource(R.string.book_missing), Modifier.padding(16.dp), style = MaterialTheme.typography.bodyLarge)
         }
         if (book == null || action == null) return@Column
-        Header(book, s.detail, action is PrimaryAction.Downloaded, baseUrl)
+        Header(book, s.authors, s.detail, action is PrimaryAction.Downloaded, baseUrl, onAuthor, onSeries)
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ActionArea(
                 action,
@@ -314,23 +317,43 @@ private fun fileLabel(file: BookFileDto) =
     listOfNotNull(file.fileName ?: file.extension?.uppercase(), file.fileSizeKb?.let { sizeLabel(it * 1024) }).joinToString(" · ")
 
 @Composable
-private fun Header(
+internal fun Header(
     book: BookEntity,
+    authors: List<String>,
     detail: BookDetailDto?,
     downloaded: Boolean,
     baseUrl: String?,
+    onAuthor: (String) -> Unit,
+    onSeries: (String) -> Unit,
 ) {
     Row(Modifier.padding(horizontal = 16.dp)) {
         Cover(BookRow(book, downloaded), baseUrl, Modifier.width(128.dp))
         Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(book.title, style = MaterialTheme.typography.headlineSmall)
-            if (book.authors.isNotBlank()) Text(book.authors, style = MaterialTheme.typography.titleSmall)
+            if (authors.isNotEmpty()) {
+                FlowRow {
+                    authors.forEachIndexed { i, name ->
+                        if (i > 0) Text(", ", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            name,
+                            Modifier.clickable(role = Role.Button) { onAuthor(name) },
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            } else if (book.authors.isNotBlank()) {
+                // BookAuthor rows are filled by sync; until then show the plain text.
+                Text(book.authors, style = MaterialTheme.typography.titleSmall)
+            }
             val series = book.seriesName
             if (series != null) {
                 val number = book.seriesNumber?.let { if (it % 1f == 0f) it.toInt().toString() else it.toString() }
                 Text(
                     if (number != null) stringResource(R.string.series_number, series, number) else series,
+                    Modifier.clickable(role = Role.Button) { onSeries(series) },
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
             val facts =

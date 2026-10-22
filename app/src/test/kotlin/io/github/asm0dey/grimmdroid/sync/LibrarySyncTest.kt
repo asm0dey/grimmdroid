@@ -75,6 +75,7 @@ private val jsonHeaders = headersOf(HttpHeaders.ContentType, ContentType.Applica
 /** Minimal Grimmory /api/v1/app server; book JSON is kept tiny so 10k-book sweeps stay fast. */
 private class FakeServer {
     var titles: Map<Long, String> = emptyMap()
+    var extraJson: Map<Long, String> = emptyMap()
     var canDownload = true
     var failOnPage: Int? = null
     var failShelfIds = false
@@ -163,7 +164,12 @@ private class FakeServer {
         maxSize = maxOf(maxSize, size)
         if (n == failOnPage) return null
         val all = titles.entries.sortedBy { it.key }
-        val content = all.drop(n * size).take(size).joinToString(",") { """{"id":${it.key},"title":"${it.value}"}""" }
+        val content =
+            all
+                .drop(
+                    n * size,
+                ).take(size)
+                .joinToString(",") { """{"id":${it.key},"title":"${it.value}"${extraJson[it.key].orEmpty()}}""" }
         val totalPages = (all.size + size - 1) / size
         val hasNext = hasNextStuck || n + 1 < totalPages
         return """{"content":[$content],"page":$n,"size":$size,"totalElements":${all.size},"totalPages":$totalPages,"hasNext":$hasNext}"""
@@ -230,6 +236,21 @@ class LibrarySyncTest {
     private fun state() = sync.state.value[accountId]
 
     private fun account() = runBlocking { accounts.accounts.first().single() }
+
+    @Test
+    fun syncStoresReadStatusAndOneAuthorRowPerName() =
+        runBlocking {
+            server.titles = mapOf(1L to "One")
+            server.extraJson = mapOf(1L to ""","readStatus":"READ","authors":["Tolkien, J.R.R.","Tolkien, Christopher"]""")
+            sync.sync(accountId)
+            assertEquals("READ", books().single().readStatus)
+            val names =
+                db.openHelper.readableDatabase.query("SELECT name FROM BookAuthor WHERE accountId = $accountId AND bookId = 1").use {
+                    buildList { while (it.moveToNext()) add(it.getString(0)) }
+                }
+            assertEquals(setOf("Tolkien, J.R.R.", "Tolkien, Christopher"), names.toSet())
+            assertEquals(2, names.size)
+        }
 
     @Test
     fun syncOf10050BooksStoresAllAndKeepsMemoryBoundedPerPage() =
@@ -382,6 +403,12 @@ class LibrarySyncTest {
         assertTrue(e.isAudiobook)
         assertEquals(2L, e.accountId)
         assertEquals(9L, e.syncGeneration)
+    }
+
+    @Test
+    fun blankAuthorNamesAreDroppedFromTheAuthorsString() {
+        assertEquals("", BookSummaryDto(id = 1, authors = listOf(" ", "")).toEntity(1, 1).authors)
+        assertEquals("A, B", BookSummaryDto(id = 1, authors = listOf(" A ", " ", "B")).toEntity(1, 1).authors)
     }
 
     @Test

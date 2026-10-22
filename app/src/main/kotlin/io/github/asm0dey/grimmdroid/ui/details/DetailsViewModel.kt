@@ -55,6 +55,8 @@ import java.io.File
 data class DetailsState(
     val account: AccountEntity? = null,
     val book: BookEntity? = null,
+    /** The book's author names from the BookAuthor rows; empty until sync has filled them. */
+    val authors: List<String> = emptyList(),
     /** True once the catalogue has answered that the book isn't there (removed by a sync). */
     val missing: Boolean = false,
     /** Fetched while online and kept in memory; null offline or until it arrives. */
@@ -97,6 +99,7 @@ class DetailsViewModel(
     accounts: Flow<List<AccountEntity>>,
     private val online: StateFlow<Boolean>,
     book: (accountId: Long, bookId: Long) -> Flow<BookEntity?>,
+    authors: (accountId: Long, bookId: Long) -> Flow<List<String>>,
     download: (accountId: Long, bookId: Long) -> Flow<DownloadEntity?>,
     work: (accountId: Long, bookId: Long) -> Flow<WorkInfo?>,
     private val loadDetail: suspend (AccountEntity, bookId: Long) -> BookDetailDto,
@@ -120,7 +123,13 @@ class DetailsViewModel(
                 if (acc == null) {
                     flowOf(DetailsState())
                 } else {
-                    combine(book(acc.id, bookId), download(acc.id, bookId), work(acc.id, bookId), online, detail) { b, row, info, on, det ->
+                    combine(
+                        book(acc.id, bookId).combine(authors(acc.id, bookId), ::Pair),
+                        download(acc.id, bookId),
+                        work(acc.id, bookId),
+                        online,
+                        detail,
+                    ) { (b, names), row, info, on, det ->
                         val pending = info?.state?.isFinished == false
                         // The worker writes its row only once it starts; until then the enqueued work stands in for it.
                         val stale =
@@ -137,6 +146,7 @@ class DetailsViewModel(
                         DetailsState(
                             account = acc,
                             book = b,
+                            authors = names,
                             missing = b == null,
                             detail = det,
                             action =
@@ -325,6 +335,7 @@ class DetailsViewModel(
                     container.accounts.accounts,
                     container.connectivity.online,
                     container.db.catalogDao()::book,
+                    container.db.catalogDao()::bookAuthors,
                     repo::observe,
                     { a, b -> repo.work(app, a, b) },
                     { acc, id -> container.api(acc).book(id) },

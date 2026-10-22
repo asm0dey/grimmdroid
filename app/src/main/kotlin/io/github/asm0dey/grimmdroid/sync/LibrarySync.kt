@@ -125,7 +125,7 @@ class LibrarySync(
             val res = api.books(page)
             // A misbehaving server could page forever; failing here also keeps unseen rows from being deleted.
             check(!res.hasNext || (res.content.isNotEmpty() && page + 1 < res.totalPages)) { "Inconsistent page $page" }
-            dao.upsertBooks(res.content.map { it.toEntity(id, generation) })
+            dao.upsertBooksWithAuthors(res.content.map { it.toEntity(id, generation) }, res.content.associate { it.id to it.authors })
             done += res.content.size
             emit(id, SyncState.Running(done, res.totalElements.toInt()))
             page++
@@ -154,7 +154,7 @@ internal fun BookSummaryDto.toEntity(
     accountId = accountId,
     id = id,
     title = title.orEmpty(),
-    authors = authors.joinToString(", "),
+    authors = authors.map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", "),
     seriesName = seriesName,
     seriesNumber = seriesNumber,
     libraryId = libraryId,
@@ -168,6 +168,7 @@ internal fun BookSummaryDto.toEntity(
     coverUpdatedOn = epochMillis(coverUpdatedOn),
     isAudiobook = primaryFileType == AUDIOBOOK_FILE_TYPE,
     syncGeneration = generation,
+    readStatus = readStatus,
 )
 
 // One bad timestamp must not fail the whole sync.

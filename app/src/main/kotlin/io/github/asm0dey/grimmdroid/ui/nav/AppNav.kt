@@ -69,13 +69,17 @@ import io.github.asm0dey.grimmdroid.auth.OidcRedirects
 import io.github.asm0dey.grimmdroid.export.ExportResult
 import io.github.asm0dey.grimmdroid.reader.ReaderActivity
 import io.github.asm0dey.grimmdroid.sync.SyncState
+import io.github.asm0dey.grimmdroid.sync.scheduleSync
 import io.github.asm0dey.grimmdroid.ui.details.DetailsEvent
 import io.github.asm0dey.grimmdroid.ui.details.DetailsScreen
 import io.github.asm0dey.grimmdroid.ui.details.DetailsViewModel
 import io.github.asm0dey.grimmdroid.ui.downloads.DownloadsScreen
 import io.github.asm0dey.grimmdroid.ui.downloads.DownloadsViewModel
+import io.github.asm0dey.grimmdroid.ui.group.GroupScreen
+import io.github.asm0dey.grimmdroid.ui.group.GroupViewModel
 import io.github.asm0dey.grimmdroid.ui.home.HomeScreen
 import io.github.asm0dey.grimmdroid.ui.home.HomeViewModel
+import io.github.asm0dey.grimmdroid.ui.library.GroupsViewModel
 import io.github.asm0dey.grimmdroid.ui.library.LibraryContent
 import io.github.asm0dey.grimmdroid.ui.library.LibraryViewModel
 import io.github.asm0dey.grimmdroid.ui.library.SearchLauncher
@@ -136,10 +140,10 @@ fun AppNav(container: AppContainer) {
     LaunchedEffect(destination) { Tab.entries.firstOrNull { destination?.hasRoute(it.route::class) == true }?.let { tab = it } }
     val inShell = destination != null && !destination.hasRoute(Onboarding::class)
     val onLibrary = destination?.hasRoute(Library::class) == true
-    // Library, Home, Details and Settings draw their own header under the banners instead of the app bar.
+    // Library, Home, Details, Settings and the series/author pages draw their own header under the banners instead of the app bar.
     val ownHeader =
-        onLibrary || destination?.hasRoute(Home::class) == true || destination?.hasRoute(Details::class) == true ||
-            destination?.hasRoute(Settings::class) == true
+        onLibrary ||
+            listOf(Home::class, Details::class, Settings::class, Series::class, Author::class).any { destination?.hasRoute(it) == true }
     val onSearch = destination?.hasRoute(Search::class) == true
     val sync = current?.let { syncStates[it.id] }
     val lastSynced = current?.lastSyncedAt
@@ -163,6 +167,12 @@ fun AppNav(container: AppContainer) {
         }
     }
     RequestNotificationsOnce(inShell)
+    val context = LocalContext.current
+    LaunchedEffect(current?.id) {
+        current?.takeIf { !it.signedOut }?.let {
+            if (container.db.catalogDao().needsAuthorBackfill(it.id)) scheduleSync(context, it.id, now = true)
+        }
+    }
     OpenReadyBooks(container, snackbar)
     ResetTabsOnAccountSwitch(nav, current?.id)
     FinishSsoRedirects(container, nav)
@@ -239,7 +249,16 @@ fun AppNav(container: AppContainer) {
             }
             composable<Library> {
                 val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.factory(container, null))
-                LibraryContent(vm, baseUrl, syncStatus, openBook) {
+                val groups: GroupsViewModel = viewModel(factory = GroupsViewModel.factory(container))
+                LibraryContent(
+                    vm,
+                    baseUrl,
+                    syncStatus,
+                    openBook,
+                    groups,
+                    { name -> current?.id?.let { nav.navigate(Author(name, it)) } },
+                    { name -> current?.id?.let { nav.navigate(Series(name, it)) } },
+                ) {
                     SearchLauncher(onSearch = { nav.navigate(Search) }, onAccount = { sheetOpen = true })
                 }
             }
@@ -268,7 +287,21 @@ fun AppNav(container: AppContainer) {
                     snackbar,
                     container.exporter,
                     { uri -> container.folderExport.setFolder(route.accountId, uri) },
+                    { nav.navigate(Author(it, route.accountId)) },
+                    { nav.navigate(Series(it, route.accountId)) },
                 ) { nav.popBackStack() }
+            }
+            composable<Series> { entry ->
+                val route = entry.toRoute<Series>()
+                val vm: GroupViewModel =
+                    viewModel(factory = GroupViewModel.factory(container, route.accountId, route.name, byAuthor = false))
+                GroupScreen(vm, baseUrl, { nav.navigate(Details(it, route.accountId)) }) { nav.popBackStack() }
+            }
+            composable<Author> { entry ->
+                val route = entry.toRoute<Author>()
+                val vm: GroupViewModel =
+                    viewModel(factory = GroupViewModel.factory(container, route.accountId, route.name, byAuthor = true))
+                GroupScreen(vm, baseUrl, { nav.navigate(Details(it, route.accountId)) }) { nav.popBackStack() }
             }
             composable<Search> {
                 val vm: SearchViewModel = viewModel(factory = SearchViewModel.factory(container))

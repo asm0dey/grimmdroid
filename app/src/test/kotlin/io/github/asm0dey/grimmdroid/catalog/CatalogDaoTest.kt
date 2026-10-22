@@ -22,6 +22,8 @@ import androidx.paging.PagingSource
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.asm0dey.grimmdroid.reader.PendingUpload
+import io.github.asm0dey.grimmdroid.reader.ReadingPosition
 import io.github.asm0dey.grimmdroid.ui.search.ftsQuery
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -31,6 +33,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -66,6 +69,7 @@ class CatalogDaoTest {
         generation: Long = 1,
         lastRead: Long? = null,
         progress: Float? = null,
+        readStatus: String? = null,
     ) = BookEntity(
         account,
         id,
@@ -84,7 +88,136 @@ class CatalogDaoTest {
         null,
         type == "AUDIOBOOK",
         generation,
+        readStatus,
     )
+
+    private fun authorRows(account: Long? = null): List<Pair<Long, String>> =
+        db.openHelper.readableDatabase
+            .query("SELECT bookId, name FROM BookAuthor ${account?.let { "WHERE accountId = $it" }.orEmpty()} ORDER BY bookId, name")
+            .use { buildList { while (it.moveToNext()) add(it.getLong(0) to it.getString(1)) } }
+
+    @Test
+    fun needsAuthorBackfillUntilAuthorRowsExist() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, authors = "A"), book(2, authors = "")))
+            assertTrue(dao.needsAuthorBackfill(1))
+            dao.upsertBooksWithAuthors(listOf(book(1, authors = "A")), mapOf(1L to listOf("A")))
+            assertFalse(dao.needsAuthorBackfill(1))
+        }
+
+    @Test
+    fun oldGenerationBookWithoutAuthorRowsNeverNeedsBackfill() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, authors = "A", generation = 1)))
+            dao.upsertBooksWithAuthors(listOf(book(2, authors = "B", generation = 2)), mapOf(2L to listOf("B")))
+            assertFalse(dao.needsAuthorBackfill(1))
+        }
+
+    @Test
+    fun pendingLocalPositionSurvivesServerUpsert() =
+        runBlocking {
+            db.readerDao().upsertPosition(ReadingPosition(1, 1, "{}", 0.995, PendingUpload.NORMAL, 42))
+            db.readerDao().upsertPosition(ReadingPosition(1, 2, "{}", 0.2, PendingUpload.NONE, 43))
+            dao.upsertBooksWithAuthors(
+                listOf(book(1, lastRead = 7, progress = 60f), book(2, lastRead = 8, progress = 60f)),
+                emptyMap(),
+            )
+            val pending = dao.book(1, 1).first()!!
+            assertEquals(99.5f, pending.readProgress!!, 0.001f)
+            assertEquals(42L, pending.lastReadTime)
+            val synced = dao.book(1, 2).first()!!
+            assertEquals(60f, synced.readProgress!!, 0.001f)
+            assertEquals(8L, synced.lastReadTime)
+        }
+
+    @Test
+    fun emptyAuthorsNeverNeedBackfill() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, authors = "")))
+            assertFalse(dao.needsAuthorBackfill(1))
+        }
+
+    @Test
+    fun authorsAreTrimmedDedupedAndReplacedOnReupsert() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(listOf(book(1)), mapOf(1L to listOf("A", " ", "A")))
+            assertEquals(listOf(1L to "A"), authorRows())
+            dao.upsertBooksWithAuthors(listOf(book(1)), mapOf(1L to listOf(" B ")))
+            assertEquals(listOf(1L to "B"), authorRows())
+        }
+
+    @Test
+    fun deleteBooksNotInDropsAuthorRowsOfDroppedBooks() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(
+                listOf(book(1, generation = 1), book(2, generation = 2)),
+                mapOf(1L to listOf("A"), 2L to listOf("B")),
+            )
+            dao.deleteBooksNotIn(1, 2)
+            assertEquals(listOf(2L to "B"), authorRows())
+        }
+
+    @Test
+    fun downloadedAbsentBookKeepsItsAuthorRows() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(listOf(book(1, generation = 1)), mapOf(1L to listOf("A")))
+            dao.upsertDownload(DownloadEntity(1, 1, 5, "f1", "/p1", 10, DownloadState.DONE, 1f))
+            dao.deleteBooksNotIn(1, 2)
+            assertEquals(listOf(1L to "A"), authorRows())
+        }
+
+    @Test
+    fun seriesBooksMatchesExactNameAcrossLibrariesAndAccount() =
+        runBlocking {
+            dao.upsertBooks(
+                listOf(
+                    book(1, series = "Dune", library = 1),
+                    book(2, series = "Dune", library = 2),
+                    book(3, series = "Dune "),
+                    book(4, series = "Dune", account = 2),
+                ),
+            )
+            assertEquals(
+                listOf(1L, 2L),
+                dao
+                    .seriesBooks(1, "Dune")
+                    .first()
+                    .map { it.id }
+                    .sorted(),
+            )
+            assertEquals(
+                listOf(1L, 2L, 3L),
+                dao
+                    .seriesBooksAll(1)
+                    .first()
+                    .map { it.id }
+                    .sorted(),
+            )
+        }
+
+    @Test
+    fun authorBooksAndPairsFollowBookAuthorRows() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(
+                listOf(book(1), book(2), book(3), book(4, account = 2)),
+                mapOf(1L to listOf("Tolkien, J.R.R.", "Lee"), 2L to listOf("Lee"), 4L to listOf("Tolkien, J.R.R.")),
+            )
+            assertEquals(listOf(1L), dao.authorBooks(1, "Tolkien, J.R.R.").first().map { it.id })
+            assertEquals(emptyList<Long>(), dao.authorBooks(1, "Tolkien").first().map { it.id })
+            val pairs = dao.authorBookPairs(1).first().map { it.name to it.book.id }
+            assertEquals(setOf("Lee" to 1L, "Tolkien, J.R.R." to 1L, "Lee" to 2L), pairs.toSet())
+            assertEquals(3, pairs.size)
+        }
+
+    @Test
+    fun deleteAccountClearsOnlyThatAccountsAuthorRows() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(listOf(book(1)), mapOf(1L to listOf("A")))
+            dao.upsertBooksWithAuthors(listOf(book(1, account = 2)), mapOf(1L to listOf("B")))
+            dao.deleteAccount(1)
+            assertEquals(listOf(1L to "B"), authorRows())
+            assertEquals(listOf(1L to "B"), authorRows(account = 2))
+        }
 
     private fun ids(q: BookQuery) = rows(q).map { it.book.id }
 
@@ -195,10 +328,11 @@ class CatalogDaoTest {
                     book(2, lastRead = 9, progress = 10f),
                     book(3, lastRead = 7, progress = 100f),
                     book(4),
+                    book(5, lastRead = 8, progress = 99.2f),
                 ),
             )
             assertEquals(listOf(2L, 1L), dao.continueReading(1).first().map { it.id })
-            assertEquals(listOf(4L, 3L), dao.recentlyAdded(1, 2).first().map { it.id })
+            assertEquals(listOf(5L, 4L), dao.recentlyAdded(1, 2).first().map { it.id })
             assertEquals("T1", dao.book(1, 1).first()?.title)
             assertNull(dao.book(2, 1).first())
         }
@@ -343,7 +477,7 @@ class CatalogDaoTest {
     @Test
     fun downloadsAreDoneRowsOfTheAccountWithTheirBookNewestFirst() =
         runBlocking {
-            dao.upsertBooks(listOf(book(1), book(2), book(3), book(4), book(1, account = 2)))
+            dao.upsertBooks(listOf(book(1, readStatus = "READ"), book(2), book(3), book(4), book(1, account = 2)))
 
             fun dl(
                 account: Long,
@@ -359,6 +493,7 @@ class CatalogDaoTest {
             assertEquals(listOf(3L, 1L), rows.map { it.book.id })
             assertEquals(listOf(30L, 10L), rows.map { it.download.sizeBytes })
             assertEquals("T3", rows.first().book.title)
+            assertEquals("READ", rows.last().book.readStatus)
         }
 
     @Test
