@@ -84,6 +84,7 @@ class DetailsViewModelSpec :
                 queried += a
                 books
             },
+            { _, _ -> flowOf(emptyList()) },
             { _, _ -> rows },
             { _, _ -> work },
             { _, id ->

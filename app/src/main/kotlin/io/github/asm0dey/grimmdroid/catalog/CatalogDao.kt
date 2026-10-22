@@ -139,6 +139,12 @@ abstract class CatalogDao {
     @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND seriesName IS NOT NULL")
     abstract fun seriesBooksAll(accountId: Long): Flow<List<BookEntity>>
 
+    @Query("SELECT name FROM BookAuthor WHERE accountId = :accountId AND bookId = :bookId ORDER BY rowid")
+    abstract fun bookAuthors(
+        accountId: Long,
+        bookId: Long,
+    ): Flow<List<String>>
+
     @Query(
         "SELECT b.* FROM BookEntity b JOIN BookAuthor a ON a.accountId = b.accountId AND a.bookId = b.id " +
             "WHERE b.accountId = :accountId AND a.name = :name",

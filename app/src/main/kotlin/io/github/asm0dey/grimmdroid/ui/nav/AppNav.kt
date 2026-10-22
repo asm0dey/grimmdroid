@@ -270,6 +270,8 @@ fun AppNav(container: AppContainer) {
                     snackbar,
                     container.exporter,
                     { uri -> container.folderExport.setFolder(route.accountId, uri) },
+                    { nav.navigate(Author(it, route.accountId)) },
+                    { nav.navigate(Series(it, route.accountId)) },
                 ) { nav.popBackStack() }
             }
             composable<Series> { entry ->
