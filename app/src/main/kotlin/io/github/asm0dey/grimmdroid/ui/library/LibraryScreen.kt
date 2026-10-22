@@ -210,10 +210,12 @@ fun BookListRow(
     row: BookRow?,
     baseUrl: String?,
     onBook: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    trailing: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .heightIn(min = 72.dp)
             .then(if (row != null) Modifier.clickable(role = Role.Button) { onBook(row.book.id) } else Modifier)
@@ -225,7 +227,7 @@ fun BookListRow(
             return@Row
         }
         Cover(row, baseUrl, Modifier.width(48.dp), showTitle = false)
-        Column(Modifier.padding(start = 16.dp)) {
+        Column(Modifier.weight(1f).padding(start = 16.dp)) {
             val book = row.book
             Text(book.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
@@ -244,6 +246,7 @@ fun BookListRow(
                 )
             }
         }
+        trailing()
     }
 }
 

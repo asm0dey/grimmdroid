@@ -74,6 +74,8 @@ import io.github.asm0dey.grimmdroid.ui.details.DetailsScreen
 import io.github.asm0dey.grimmdroid.ui.details.DetailsViewModel
 import io.github.asm0dey.grimmdroid.ui.downloads.DownloadsScreen
 import io.github.asm0dey.grimmdroid.ui.downloads.DownloadsViewModel
+import io.github.asm0dey.grimmdroid.ui.group.GroupScreen
+import io.github.asm0dey.grimmdroid.ui.group.GroupViewModel
 import io.github.asm0dey.grimmdroid.ui.home.HomeScreen
 import io.github.asm0dey.grimmdroid.ui.home.HomeViewModel
 import io.github.asm0dey.grimmdroid.ui.library.LibraryContent
@@ -136,10 +138,10 @@ fun AppNav(container: AppContainer) {
     LaunchedEffect(destination) { Tab.entries.firstOrNull { destination?.hasRoute(it.route::class) == true }?.let { tab = it } }
     val inShell = destination != null && !destination.hasRoute(Onboarding::class)
     val onLibrary = destination?.hasRoute(Library::class) == true
-    // Library, Home, Details and Settings draw their own header under the banners instead of the app bar.
+    // Library, Home, Details, Settings and the series/author pages draw their own header under the banners instead of the app bar.
     val ownHeader =
-        onLibrary || destination?.hasRoute(Home::class) == true || destination?.hasRoute(Details::class) == true ||
-            destination?.hasRoute(Settings::class) == true
+        onLibrary ||
+            listOf(Home::class, Details::class, Settings::class, Series::class, Author::class).any { destination?.hasRoute(it) == true }
     val onSearch = destination?.hasRoute(Search::class) == true
     val sync = current?.let { syncStates[it.id] }
     val lastSynced = current?.lastSyncedAt
@@ -269,6 +271,18 @@ fun AppNav(container: AppContainer) {
                     container.exporter,
                     { uri -> container.folderExport.setFolder(route.accountId, uri) },
                 ) { nav.popBackStack() }
+            }
+            composable<Series> { entry ->
+                val route = entry.toRoute<Series>()
+                val vm: GroupViewModel =
+                    viewModel(factory = GroupViewModel.factory(container, route.accountId, route.name, byAuthor = false))
+                GroupScreen(vm, baseUrl, { nav.navigate(Details(it, route.accountId)) }) { nav.popBackStack() }
+            }
+            composable<Author> { entry ->
+                val route = entry.toRoute<Author>()
+                val vm: GroupViewModel =
+                    viewModel(factory = GroupViewModel.factory(container, route.accountId, route.name, byAuthor = true))
+                GroupScreen(vm, baseUrl, { nav.navigate(Details(it, route.accountId)) }) { nav.popBackStack() }
             }
             composable<Search> {
                 val vm: SearchViewModel = viewModel(factory = SearchViewModel.factory(container))

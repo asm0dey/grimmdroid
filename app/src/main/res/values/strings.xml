@@ -206,4 +206,14 @@
     <string name="reader_decrease">Decrease %1$s</string>
     <string name="reader_increase">Increase %1$s</string>
     <string name="footnote">Footnote</string>
+    <plurals name="read_of_total">
+        <item quantity="one">%1$d of %2$d read</item>
+        <item quantity="other">%1$d of %2$d read</item>
+    </plurals>
+    <string name="not_in_series">Not in a series</string>
+    <string name="series_position">#%1$s</string>
+    <string name="state_read">Read</string>
+    <string name="state_in_progress">In progress, %1$d%%</string>
+    <string name="state_dismissed">Dismissed</string>
+    <string name="up_next">Up next</string>
 </resources>

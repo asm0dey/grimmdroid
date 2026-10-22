@@ -47,6 +47,18 @@ data class Details(
     val accountId: Long,
 )
 
+@Serializable
+data class Series(
+    val name: String,
+    val accountId: Long,
+)
+
+@Serializable
+data class Author(
+    val name: String,
+    val accountId: Long,
+)
+
 @Serializable data object Search
 
 @Serializable data object Settings
