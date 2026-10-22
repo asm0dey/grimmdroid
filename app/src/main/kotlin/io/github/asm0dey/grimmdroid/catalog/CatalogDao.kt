@@ -219,7 +219,7 @@ abstract class CatalogDao {
             "b.readProgress AS b_readProgress, b.primaryFileId AS b_primaryFileId, " +
             "b.primaryFileType AS b_primaryFileType, b.primaryFileName AS b_primaryFileName, " +
             "b.fileSizeKb AS b_fileSizeKb, b.coverUpdatedOn AS b_coverUpdatedOn, " +
-            "b.isAudiobook AS b_isAudiobook, b.syncGeneration AS b_syncGeneration " +
+            "b.isAudiobook AS b_isAudiobook, b.syncGeneration AS b_syncGeneration, b.readStatus AS b_readStatus " +
             "FROM DownloadEntity d JOIN BookEntity b ON b.accountId = d.accountId AND b.id = d.bookId " +
             "WHERE d.accountId = :accountId AND d.state = 'DONE' GROUP BY d.accountId, d.bookId ORDER BY MIN(d.rowid) DESC",
     )

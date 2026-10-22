@@ -42,6 +42,14 @@ data class BookEntity(
     val coverUpdatedOn: Long?,
     val isAudiobook: Boolean,
     val syncGeneration: Long,
+    val readStatus: String? = null,
+)
+
+@Entity(primaryKeys = ["accountId", "bookId", "name"], indices = [Index("accountId", "name")])
+data class BookAuthor(
+    val accountId: Long,
+    val bookId: Long,
+    val name: String,
 )
 
 @Fts4(contentEntity = BookEntity::class)

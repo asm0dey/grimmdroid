@@ -49,6 +49,11 @@ class ReadStateSpec :
             readState("SOMETHING_NEW", null) shouldBe none
             readState(null, null) shouldBe none
         }
+        test("entity readState uses the readStatus column") {
+            val book = b(1, 1f).copy(readStatus = "READ", readProgress = 0f)
+            book.readState shouldBe read
+            nextToRead(listOf(book, b(2, 2f))) ?.id shouldBe 2
+        }
         test("order") {
             val books = listOf(b(1, 3f), b(2, null, "A"), b(3, 1f), b(4, null, "b"), b(5, 2f))
             books.sortedWith(SeriesOrder).map { it.id } shouldBe listOf(3L, 5L, 1L, 2L, 4L)

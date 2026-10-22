@@ -33,8 +33,7 @@ fun readState(
     }
 }
 
-// Task 2 switches this to the readStatus column.
-val BookEntity.readState: ReadState get() = readState(null, readProgress)
+val BookEntity.readState: ReadState get() = readState(readStatus, readProgress)
 
 val SeriesOrder: Comparator<BookEntity> =
     compareBy<BookEntity, Float?>(nullsLast()) { it.seriesNumber }
