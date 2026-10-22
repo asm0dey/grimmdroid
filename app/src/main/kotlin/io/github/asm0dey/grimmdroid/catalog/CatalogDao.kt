@@ -84,6 +84,13 @@ abstract class CatalogDao {
         }
     }
 
+    /** True when pre-v3 data left books with authors but no author rows; a sync fills them. */
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM BookEntity b WHERE b.accountId = :accountId AND b.authors != '' AND " +
+            "NOT EXISTS (SELECT 1 FROM BookAuthor a WHERE a.accountId = b.accountId AND a.bookId = b.id))",
+    )
+    abstract suspend fun needsAuthorBackfill(accountId: Long): Boolean
+
     @Query(
         "SELECT DISTINCT bookId FROM DownloadEntity WHERE accountId = :accountId AND bookId IN " +
             "(SELECT b.id FROM BookEntity b WHERE b.accountId = :accountId AND b.syncGeneration != :generation AND NOT $DOWNLOADED_EXISTS)",

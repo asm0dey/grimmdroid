@@ -69,6 +69,7 @@ import io.github.asm0dey.grimmdroid.auth.OidcRedirects
 import io.github.asm0dey.grimmdroid.export.ExportResult
 import io.github.asm0dey.grimmdroid.reader.ReaderActivity
 import io.github.asm0dey.grimmdroid.sync.SyncState
+import io.github.asm0dey.grimmdroid.sync.scheduleSync
 import io.github.asm0dey.grimmdroid.ui.details.DetailsEvent
 import io.github.asm0dey.grimmdroid.ui.details.DetailsScreen
 import io.github.asm0dey.grimmdroid.ui.details.DetailsViewModel
@@ -166,6 +167,12 @@ fun AppNav(container: AppContainer) {
         }
     }
     RequestNotificationsOnce(inShell)
+    val context = LocalContext.current
+    LaunchedEffect(current?.id) {
+        current?.takeIf { !it.signedOut }?.let {
+            if (container.db.catalogDao().needsAuthorBackfill(it.id)) scheduleSync(context, it.id, now = true)
+        }
+    }
     OpenReadyBooks(container, snackbar)
     ResetTabsOnAccountSwitch(nav, current?.id)
     FinishSsoRedirects(container, nav)

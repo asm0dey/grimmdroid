@@ -31,6 +31,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -92,6 +93,22 @@ class CatalogDaoTest {
         db.openHelper.readableDatabase
             .query("SELECT bookId, name FROM BookAuthor ${account?.let { "WHERE accountId = $it" }.orEmpty()} ORDER BY bookId, name")
             .use { buildList { while (it.moveToNext()) add(it.getLong(0) to it.getString(1)) } }
+
+    @Test
+    fun needsAuthorBackfillUntilAuthorRowsExist() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, authors = "A"), book(2, authors = "")))
+            assertTrue(dao.needsAuthorBackfill(1))
+            dao.upsertBooksWithAuthors(listOf(book(1, authors = "A")), mapOf(1L to listOf("A")))
+            assertFalse(dao.needsAuthorBackfill(1))
+        }
+
+    @Test
+    fun emptyAuthorsNeverNeedBackfill() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, authors = "")))
+            assertFalse(dao.needsAuthorBackfill(1))
+        }
 
     @Test
     fun authorsAreTrimmedDedupedAndReplacedOnReupsert() =
