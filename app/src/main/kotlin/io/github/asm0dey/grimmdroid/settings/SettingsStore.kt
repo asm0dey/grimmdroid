@@ -77,6 +77,27 @@ class SettingsStore(
         store.edit { if (uri == null) it.remove(folderKey(accountId)) else it[folderKey(accountId)] = uri.toString() }
     }
 
+    /** The (libraryId, pathId) [accountId]'s uploads go to, once chosen. */
+    fun uploadTarget(accountId: Long): Flow<Pair<Long, Long>?> =
+        store.data.map { p ->
+            p[uploadKey(accountId)]?.split(':')?.let { (lib, path) -> lib.toLong() to path.toLong() }
+        }
+
+    suspend fun setUploadTarget(
+        accountId: Long,
+        target: Pair<Long, Long>?,
+    ) {
+        store.edit {
+            if (target ==
+                null
+            ) {
+                it.remove(uploadKey(accountId))
+            } else {
+                it[uploadKey(accountId)] = "${target.first}:${target.second}"
+            }
+        }
+    }
+
     private companion object {
         val AFTER_DOWNLOAD = stringPreferencesKey("after_download")
         val THEME = stringPreferencesKey("theme")
@@ -84,6 +105,8 @@ class SettingsStore(
         val LAYOUT = stringPreferencesKey("library_layout")
 
         fun folderKey(accountId: Long) = stringPreferencesKey("folder_uri_$accountId")
+
+        fun uploadKey(accountId: Long) = stringPreferencesKey("upload_target_$accountId")
 
         val CURRENT_ACCOUNT = longPreferencesKey("current_account_id")
     }
