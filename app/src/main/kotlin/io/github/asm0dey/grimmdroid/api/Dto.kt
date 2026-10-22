@@ -169,6 +169,14 @@ data class LibraryDto(
     val id: Long,
     val name: String,
     val bookCount: Long = 0,
+    val watch: Boolean = false,
+    val paths: List<LibraryPathDto> = emptyList(),
+)
+
+@Serializable
+data class LibraryPathDto(
+    val id: Long,
+    val path: String? = null,
 )
 
 @Serializable

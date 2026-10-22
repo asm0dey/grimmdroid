@@ -156,6 +156,12 @@ abstract class CatalogDao {
         id: Long,
     ): Flow<BookEntity?>
 
+    @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND title = :title COLLATE NOCASE ORDER BY id LIMIT 1")
+    abstract suspend fun bookByTitle(
+        accountId: Long,
+        title: String,
+    ): BookEntity?
+
     @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND seriesName = :name")
     abstract fun seriesBooks(
         accountId: Long,

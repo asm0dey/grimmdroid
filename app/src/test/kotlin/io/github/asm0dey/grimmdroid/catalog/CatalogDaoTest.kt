@@ -97,6 +97,15 @@ class CatalogDaoTest {
             .use { buildList { while (it.moveToNext()) add(it.getLong(0) to it.getString(1)) } }
 
     @Test
+    fun bookByTitleFindsABookCaseInsensitivelyAndOnlyForThatAccount() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, title = "Dune"), book(2, title = "Other", account = 2), book(3, title = "Other")))
+            assertEquals(1L, dao.bookByTitle(1, "dUNE")?.id)
+            assertEquals(3L, dao.bookByTitle(1, "other")?.id)
+            assertNull(dao.bookByTitle(2, "Dune"))
+        }
+
+    @Test
     fun needsAuthorBackfillUntilAuthorRowsExist() =
         runBlocking {
             dao.upsertBooks(listOf(book(1, authors = "A"), book(2, authors = "")))
