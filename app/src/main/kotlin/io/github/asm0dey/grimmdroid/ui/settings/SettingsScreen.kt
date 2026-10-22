@@ -105,6 +105,7 @@ fun SettingsScreen(
     val theme by vm.theme.collectAsState()
     val dynamic by vm.dynamicColor.collectAsState()
     val folder by vm.folderName.collectAsState()
+    val uploadTargetSet by vm.uploadTargetSet.collectAsState()
     val books by vm.booksBytes.collectAsState()
     val covers by vm.coverBytes.collectAsState()
     val context = LocalContext.current
@@ -160,6 +161,17 @@ fun SettingsScreen(
                     headlineContent = { Text(stringResource(R.string.folder)) },
                     supportingContent = { Text(folder ?: stringResource(R.string.folder_not_chosen)) },
                     trailingContent = { TextButton(onClick = { picker.launch(null) }) { Text(stringResource(R.string.change_action)) } },
+                )
+            }
+            if (current != null) {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.upload_to)) },
+                    supportingContent = {
+                        Text(stringResource(if (uploadTargetSet) R.string.upload_to_set else R.string.upload_to_unset))
+                    },
+                    trailingContent = {
+                        if (uploadTargetSet) TextButton(onClick = vm::clearUploadTarget) { Text(stringResource(R.string.change_action)) }
+                    },
                 )
             }
             ListItem(

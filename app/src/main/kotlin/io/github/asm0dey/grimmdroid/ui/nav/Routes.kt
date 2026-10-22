@@ -62,3 +62,9 @@ data class Author(
 @Serializable data object Search
 
 @Serializable data object Settings
+
+@Serializable
+data class Upload(
+    val uri: String,
+    val accountId: Long,
+)

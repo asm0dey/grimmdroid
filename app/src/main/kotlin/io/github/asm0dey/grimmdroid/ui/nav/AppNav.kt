@@ -19,6 +19,7 @@ package io.github.asm0dey.grimmdroid.ui.nav
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -90,6 +91,10 @@ import io.github.asm0dey.grimmdroid.ui.search.SearchViewModel
 import io.github.asm0dey.grimmdroid.ui.settings.SettingsScreen
 import io.github.asm0dey.grimmdroid.ui.settings.SettingsViewModel
 import io.github.asm0dey.grimmdroid.ui.shelves.ShelvesScreen
+import io.github.asm0dey.grimmdroid.upload.IncomingBooks
+import io.github.asm0dey.grimmdroid.upload.UploadScreen
+import io.github.asm0dey.grimmdroid.upload.UploadViewModel
+import io.github.asm0dey.grimmdroid.upload.uploadViewModelFactory
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
@@ -143,7 +148,10 @@ fun AppNav(container: AppContainer) {
     // Library, Home, Details, Settings and the series/author pages draw their own header under the banners instead of the app bar.
     val ownHeader =
         onLibrary ||
-            listOf(Home::class, Details::class, Settings::class, Series::class, Author::class).any { destination?.hasRoute(it) == true }
+            listOf(Home::class, Details::class, Settings::class, Series::class, Author::class, Upload::class).any {
+                destination?.hasRoute(it) ==
+                    true
+            }
     val onSearch = destination?.hasRoute(Search::class) == true
     val sync = current?.let { syncStates[it.id] }
     val lastSynced = current?.lastSyncedAt
@@ -174,6 +182,21 @@ fun AppNav(container: AppContainer) {
         }
     }
     OpenReadyBooks(container, snackbar)
+    // A book handed in before any account is signed in waits here until one is.
+    val incoming by IncomingBooks.incoming.collectAsState()
+    LaunchedEffect(incoming, current?.id, current?.signedOut) {
+        val uri = incoming ?: return@LaunchedEffect
+        val account = current?.takeIf { !it.signedOut } ?: return@LaunchedEffect
+        IncomingBooks.incoming.value = null
+        nav.navigate(Upload(uri.toString(), account.id))
+    }
+    val pickBook =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let {
+                IncomingBooks.incoming.value =
+                    it
+            }
+        }
     ResetTabsOnAccountSwitch(nav, current?.id)
     FinishSsoRedirects(container, nav)
 
@@ -259,7 +282,11 @@ fun AppNav(container: AppContainer) {
                     { name -> current?.id?.let { nav.navigate(Author(name, it)) } },
                     { name -> current?.id?.let { nav.navigate(Series(name, it)) } },
                 ) {
-                    SearchLauncher(onSearch = { nav.navigate(Search) }, onAccount = { sheetOpen = true })
+                    SearchLauncher(
+                        onSearch = { nav.navigate(Search) },
+                        onAccount = { sheetOpen = true },
+                        onUpload = { pickBook.launch(arrayOf("application/epub+zip")) },
+                    )
                 }
             }
             composable<Shelves> {
@@ -306,6 +333,11 @@ fun AppNav(container: AppContainer) {
             composable<Search> {
                 val vm: SearchViewModel = viewModel(factory = SearchViewModel.factory(container))
                 SearchScreen(vm, baseUrl, openBook) { nav.popBackStack() }
+            }
+            composable<Upload> { entry ->
+                val route = entry.toRoute<Upload>()
+                val vm: UploadViewModel = viewModel(factory = uploadViewModelFactory(container, route.accountId, Uri.parse(route.uri)))
+                UploadScreen(vm, baseUrl?.let(::serverName).orEmpty()) { nav.popBackStack() }
             }
             composable<Settings> {
                 val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))

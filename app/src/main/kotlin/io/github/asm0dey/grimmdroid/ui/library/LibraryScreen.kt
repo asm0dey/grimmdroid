@@ -381,6 +381,7 @@ private fun FilterSheet(
 fun SearchLauncher(
     onSearch: () -> Unit,
     onAccount: () -> Unit,
+    onUpload: (() -> Unit)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
@@ -401,6 +402,9 @@ fun SearchLauncher(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        if (onUpload != null) {
+            IconButton(onClick = onUpload) { Icon(painterResource(R.drawable.ic_add), stringResource(R.string.upload_book)) }
         }
         IconButton(onClick = onAccount) {
             Icon(painterResource(R.drawable.ic_account_circle), stringResource(R.string.accounts))

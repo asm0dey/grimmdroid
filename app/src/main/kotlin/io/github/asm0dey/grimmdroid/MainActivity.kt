@@ -19,6 +19,7 @@ package io.github.asm0dey.grimmdroid
 
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -27,18 +28,23 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.core.content.IntentCompat
 import io.github.asm0dey.grimmdroid.auth.OidcRedirects
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
 import io.github.asm0dey.grimmdroid.ui.nav.AppNav
 import io.github.asm0dey.grimmdroid.ui.theme.GrimmdroidTheme
 import io.github.asm0dey.grimmdroid.ui.theme.isDark
+import io.github.asm0dey.grimmdroid.upload.IncomingBooks
 import io.ktor.http.Url
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // On recreation the same Intent comes back; its redirect was already forwarded.
-        if (savedInstanceState == null) forwardOidcRedirect(intent)
+        if (savedInstanceState == null) {
+            forwardOidcRedirect(intent)
+            forwardIncomingBook(intent)
+        }
         enableEdgeToEdge()
         val container = (application as GrimmdroidApp).container
         setContent {
@@ -58,6 +64,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         forwardOidcRedirect(intent)
+        forwardIncomingBook(intent)
+    }
+
+    private fun forwardIncomingBook(intent: Intent) {
+        val uri =
+            when (intent.action) {
+                Intent.ACTION_VIEW -> intent.data?.takeIf { it.scheme == "content" }
+                Intent.ACTION_SEND -> IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                else -> null
+            } ?: return
+        IncomingBooks.incoming.value = uri
     }
 
     private fun forwardOidcRedirect(intent: Intent) {
