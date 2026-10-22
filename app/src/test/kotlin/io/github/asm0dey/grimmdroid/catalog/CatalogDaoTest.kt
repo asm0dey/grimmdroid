@@ -66,6 +66,7 @@ class CatalogDaoTest {
         generation: Long = 1,
         lastRead: Long? = null,
         progress: Float? = null,
+        readStatus: String? = null,
     ) = BookEntity(
         account,
         id,
@@ -84,7 +85,43 @@ class CatalogDaoTest {
         null,
         type == "AUDIOBOOK",
         generation,
+        readStatus,
     )
+
+    private fun authorRows(account: Long? = null): List<Pair<Long, String>> =
+        db.openHelper.readableDatabase
+            .query("SELECT bookId, name FROM BookAuthor ${account?.let { "WHERE accountId = $it" }.orEmpty()} ORDER BY bookId, name")
+            .use { buildList { while (it.moveToNext()) add(it.getLong(0) to it.getString(1)) } }
+
+    @Test
+    fun authorsAreTrimmedDedupedAndReplacedOnReupsert() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(listOf(book(1)), mapOf(1L to listOf("A", " ", "A")))
+            assertEquals(listOf(1L to "A"), authorRows())
+            dao.upsertBooksWithAuthors(listOf(book(1)), mapOf(1L to listOf(" B ")))
+            assertEquals(listOf(1L to "B"), authorRows())
+        }
+
+    @Test
+    fun deleteBooksNotInDropsAuthorRowsOfDroppedBooks() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(
+                listOf(book(1, generation = 1), book(2, generation = 2)),
+                mapOf(1L to listOf("A"), 2L to listOf("B")),
+            )
+            dao.deleteBooksNotIn(1, 2)
+            assertEquals(listOf(2L to "B"), authorRows())
+        }
+
+    @Test
+    fun deleteAccountClearsOnlyThatAccountsAuthorRows() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(listOf(book(1)), mapOf(1L to listOf("A")))
+            dao.upsertBooksWithAuthors(listOf(book(1, account = 2)), mapOf(1L to listOf("B")))
+            dao.deleteAccount(1)
+            assertEquals(listOf(1L to "B"), authorRows())
+            assertEquals(listOf(1L to "B"), authorRows(account = 2))
+        }
 
     private fun ids(q: BookQuery) = rows(q).map { it.book.id }
 
@@ -343,7 +380,7 @@ class CatalogDaoTest {
     @Test
     fun downloadsAreDoneRowsOfTheAccountWithTheirBookNewestFirst() =
         runBlocking {
-            dao.upsertBooks(listOf(book(1), book(2), book(3), book(4), book(1, account = 2)))
+            dao.upsertBooks(listOf(book(1, readStatus = "READ"), book(2), book(3), book(4), book(1, account = 2)))
 
             fun dl(
                 account: Long,
@@ -359,6 +396,7 @@ class CatalogDaoTest {
             assertEquals(listOf(3L, 1L), rows.map { it.book.id })
             assertEquals(listOf(30L, 10L), rows.map { it.download.sizeBytes })
             assertEquals("T3", rows.first().book.title)
+            assertEquals("READ", rows.last().book.readStatus)
         }
 
     @Test

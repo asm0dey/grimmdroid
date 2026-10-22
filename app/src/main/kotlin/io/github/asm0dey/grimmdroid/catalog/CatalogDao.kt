@@ -46,6 +46,44 @@ abstract class CatalogDao {
     @Upsert
     abstract suspend fun upsertBooks(books: List<BookEntity>)
 
+    @Query("DELETE FROM BookAuthor WHERE accountId = :accountId AND bookId IN (:bookIds)")
+    protected abstract suspend fun deleteAuthorsOf(
+        accountId: Long,
+        bookIds: List<Long>,
+    )
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    protected abstract suspend fun insertAuthors(authors: List<BookAuthor>)
+
+    @Query("DELETE FROM BookAuthor WHERE accountId = :accountId AND bookId NOT IN (SELECT id FROM BookEntity WHERE accountId = :accountId)")
+    protected abstract suspend fun deleteOrphanAuthors(accountId: Long)
+
+    @Query("DELETE FROM BookAuthor WHERE accountId = :accountId")
+    protected abstract suspend fun deleteAuthors(accountId: Long)
+
+    /** Upserts [books] and replaces their author rows with [authors] (book id to names); names are trimmed, blanks and duplicates dropped. */
+    @Transaction
+    open suspend fun upsertBooksWithAuthors(
+        books: List<BookEntity>,
+        authors: Map<Long, List<String>>,
+    ) {
+        upsertBooks(books)
+        // One account per page; chunked deletes stay under SQLite's bound-variable limit.
+        books.groupBy { it.accountId }.forEach { (account, bs) ->
+            bs.map { it.id }.chunked(500).forEach { deleteAuthorsOf(account, it) }
+            insertAuthors(
+                bs.flatMap { b ->
+                    authors[b.id]
+                        .orEmpty()
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .distinct()
+                        .map { BookAuthor(account, b.id, it) }
+                },
+            )
+        }
+    }
+
     @Query(
         "SELECT DISTINCT bookId FROM DownloadEntity WHERE accountId = :accountId AND bookId IN " +
             "(SELECT b.id FROM BookEntity b WHERE b.accountId = :accountId AND b.syncGeneration != :generation AND NOT $DOWNLOADED_EXISTS)",
@@ -82,6 +120,7 @@ abstract class CatalogDao {
         val dropped = unfinishedDownloadsOfAbsentBooks(accountId, generation)
         deleteAbsentUndownloadedBooks(accountId, generation)
         deleteOrphanDownloads(accountId)
+        deleteOrphanAuthors(accountId)
         return dropped
     }
 
@@ -241,6 +280,7 @@ abstract class CatalogDao {
     @Transaction
     open suspend fun deleteAccount(accountId: Long) {
         deleteBooks(accountId)
+        deleteAuthors(accountId)
         deleteLibraries(accountId)
         deleteShelves(accountId)
         deleteShelfMembers(accountId)
