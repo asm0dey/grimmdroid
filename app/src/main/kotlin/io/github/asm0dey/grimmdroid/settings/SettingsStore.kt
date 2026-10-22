@@ -61,6 +61,12 @@ class SettingsStore(
         store.edit { it[DYNAMIC_COLOR] = enabled }
     }
 
+    val animatePageTurns: Flow<Boolean> = store.data.map { it[ANIMATE_PAGE_TURNS] ?: false }
+
+    suspend fun setAnimatePageTurns(enabled: Boolean) {
+        store.edit { it[ANIMATE_PAGE_TURNS] = enabled }
+    }
+
     val libraryLayout: Flow<Layout> = store.data.map { p -> Layout.entries.firstOrNull { it.name == p[LAYOUT] } ?: Layout.GRID }
 
     suspend fun setLibraryLayout(layout: Layout) {
@@ -81,6 +87,7 @@ class SettingsStore(
         val AFTER_DOWNLOAD = stringPreferencesKey("after_download")
         val THEME = stringPreferencesKey("theme")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val ANIMATE_PAGE_TURNS = booleanPreferencesKey("animate_page_turns")
         val LAYOUT = stringPreferencesKey("library_layout")
 
         fun folderKey(accountId: Long) = stringPreferencesKey("folder_uri_$accountId")

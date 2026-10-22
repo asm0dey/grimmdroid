@@ -85,6 +85,7 @@ class SettingsViewModel(
     val afterDownload = settings.afterDownload.state(AfterDownloadAction.NOTHING)
     val theme = settings.theme.state(ThemeMode.SYSTEM)
     val dynamicColor = settings.dynamicColor.state(true)
+    val animatePageTurns = settings.animatePageTurns.state(false)
 
     /** The current account's export folder name, or null when none is chosen. */
     val folderName: StateFlow<String?> =
@@ -134,6 +135,10 @@ class SettingsViewModel(
 
     fun setDynamicColor(enabled: Boolean) {
         viewModelScope.launch { settings.setDynamicColor(enabled) }
+    }
+
+    fun setAnimatePageTurns(enabled: Boolean) {
+        viewModelScope.launch { settings.setAnimatePageTurns(enabled) }
     }
 
     fun setFolder(uri: Uri) {

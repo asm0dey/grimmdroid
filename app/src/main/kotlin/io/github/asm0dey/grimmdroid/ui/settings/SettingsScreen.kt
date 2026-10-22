@@ -104,6 +104,7 @@ fun SettingsScreen(
     val afterDownload by vm.afterDownload.collectAsState()
     val theme by vm.theme.collectAsState()
     val dynamic by vm.dynamicColor.collectAsState()
+    val animate by vm.animatePageTurns.collectAsState()
     val folder by vm.folderName.collectAsState()
     val books by vm.booksBytes.collectAsState()
     val covers by vm.coverBytes.collectAsState()
@@ -185,6 +186,14 @@ fun SettingsScreen(
                     modifier = Modifier.toggleable(dynamic, role = Role.Switch, onValueChange = vm::setDynamicColor),
                 )
             }
+
+            Section(stringResource(R.string.section_reading))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.animate_page_turns)) },
+                supportingContent = { Text(stringResource(R.string.animate_page_turns_hint)) },
+                trailingContent = { Switch(checked = animate, onCheckedChange = null) },
+                modifier = Modifier.toggleable(animate, role = Role.Switch, onValueChange = vm::setAnimatePageTurns),
+            )
 
             Section(stringResource(R.string.section_storage))
             ListItem(
