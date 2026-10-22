@@ -126,6 +126,11 @@
     <string name="remove_body">This deletes the account, its library and its downloaded books from this phone.</string>
     <string name="keep_books">Keep books on this phone</string>
     <string name="remove_account_and_books">Remove account and its books</string>
+    <string name="section_start">Open app on</string>
+    <string name="start_last_book">Last book</string>
+    <string name="start_last_book_hint">The book you read last, at your page</string>
+    <string name="start_last_place">Last place</string>
+    <string name="start_last_place_hint">The book you were reading, or the tab you left</string>
     <string name="section_downloads">Downloads</string>
     <string name="after_download_title">After a download finishes</string>
     <string name="after_nothing">Do nothing</string>

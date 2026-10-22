@@ -66,6 +66,7 @@ import androidx.core.net.toUri
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
+import io.github.asm0dey.grimmdroid.settings.StartScreen
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
 import io.github.asm0dey.grimmdroid.ui.nav.serverName
 import io.github.asm0dey.grimmdroid.ui.nav.syncedLabel
@@ -105,6 +106,7 @@ fun SettingsScreen(
     val theme by vm.theme.collectAsState()
     val dynamic by vm.dynamicColor.collectAsState()
     val animate by vm.animatePageTurns.collectAsState()
+    val startScreen by vm.startScreen.collectAsState()
     val folder by vm.folderName.collectAsState()
     val uploadTargetSet by vm.uploadTargetSet.collectAsState()
     val books by vm.booksBytes.collectAsState()
@@ -132,6 +134,22 @@ fun SettingsScreen(
                         account.id
                 })
             }
+
+            Section(stringResource(R.string.section_start))
+            RadioGroup(
+                listOf(
+                    Triple(StartScreen.HOME, stringResource(R.string.tab_home), null),
+                    Triple(StartScreen.LIBRARY, stringResource(R.string.tab_library), null),
+                    Triple(StartScreen.LAST_BOOK, stringResource(R.string.start_last_book), stringResource(R.string.start_last_book_hint)),
+                    Triple(
+                        StartScreen.LAST_PLACE,
+                        stringResource(R.string.start_last_place),
+                        stringResource(R.string.start_last_place_hint),
+                    ),
+                ),
+                startScreen,
+                vm::setStartScreen,
+            )
 
             Section(stringResource(R.string.section_downloads))
             Text(

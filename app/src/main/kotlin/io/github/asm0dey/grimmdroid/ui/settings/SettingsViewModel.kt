@@ -38,6 +38,7 @@ import io.github.asm0dey.grimmdroid.reader.PositionSync
 import io.github.asm0dey.grimmdroid.reader.ReaderDao
 import io.github.asm0dey.grimmdroid.reader.positionUploadWork
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
+import io.github.asm0dey.grimmdroid.settings.StartScreen
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
 import io.github.asm0dey.grimmdroid.sync.LibrarySync
 import io.github.asm0dey.grimmdroid.sync.scheduleSync
@@ -86,6 +87,7 @@ class SettingsViewModel(
     val theme = settings.theme.state(ThemeMode.SYSTEM)
     val dynamicColor = settings.dynamicColor.state(true)
     val animatePageTurns = settings.animatePageTurns.state(false)
+    val startScreen = settings.startScreen.state(StartScreen.HOME)
 
     /** The current account's export folder name, or null when none is chosen. */
     val folderName: StateFlow<String?> =
@@ -142,6 +144,10 @@ class SettingsViewModel(
 
     fun setTheme(mode: ThemeMode) {
         viewModelScope.launch { settings.setTheme(mode) }
+    }
+
+    fun setStartScreen(screen: StartScreen) {
+        viewModelScope.launch { settings.setStartScreen(screen) }
     }
 
     fun setDynamicColor(enabled: Boolean) {
