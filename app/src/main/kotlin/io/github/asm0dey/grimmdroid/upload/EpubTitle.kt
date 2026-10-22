@@ -27,9 +27,14 @@ import java.util.zip.ZipFile
 fun epubTitle(file: File): String? =
     try {
         ZipFile(file).use { zip ->
-            fun xml(path: String) = zip.getEntry(path)?.let { e -> zip.getInputStream(e).use { Jsoup.parse(it, null, "", Parser.xmlParser()) } }
+            fun xml(path: String) =
+                zip.getEntry(path)?.let { e -> zip.getInputStream(e).use { Jsoup.parse(it, null, "", Parser.xmlParser()) } }
             val opfPath = xml("META-INF/container.xml")?.selectFirst("rootfile[full-path]")?.attr("full-path") ?: return null
-            xml(opfPath)?.selectFirst("dc|title, title")?.text()?.trim()?.ifBlank { null }
+            xml(opfPath)
+                ?.selectFirst("dc|title, title")
+                ?.text()
+                ?.trim()
+                ?.ifBlank { null }
         }
     } catch (_: IOException) {
         null

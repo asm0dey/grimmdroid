@@ -94,6 +94,10 @@ class UploadApiSpec :
                     )
                 }.uploadLibraries()
             libs.single().watch shouldBe true
-            libs.single().paths.single().id shouldBe 9
+            libs
+                .single()
+                .paths
+                .single()
+                .id shouldBe 9
         }
     })
