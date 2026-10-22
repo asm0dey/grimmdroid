@@ -21,7 +21,11 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.plugins.ServerResponseException
+import io.ktor.client.plugins.onUpload
 import io.ktor.client.request.delete
+import io.ktor.client.request.forms.ChannelProvider
+import io.ktor.client.request.forms.formData
+import io.ktor.client.request.forms.submitFormWithBinaryData
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
@@ -30,14 +34,20 @@ import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.util.cio.readChannel
 import io.ktor.utils.io.jvm.javaio.copyTo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+
+class NoUploadPermission : IOException("Your account can't upload books")
 
 // Paths are relative so they resolve against authedClient's base URL (which may carry a sub-path).
 class GrimmoryApi(
@@ -78,6 +88,47 @@ class GrimmoryApi(
         } catch (_: ServerResponseException) {
             client.get("api/v1/libraries").body()
         }
+
+    // Only the web endpoint carries `watch`; the app one sends paths but not whether the folder is watched.
+    suspend fun uploadLibraries(): List<LibraryDto> = client.get("api/v1/libraries").body()
+
+    /** Answers 204 with no body: the server only moves the file into the folder; its watcher (or a rescan) indexes it. */
+    suspend fun upload(
+        file: File,
+        fileName: String,
+        libraryId: Long,
+        pathId: Long,
+        onProgress: (Float) -> Unit,
+    ) {
+        try {
+            client.submitFormWithBinaryData(
+                "api/v1/files/upload",
+                formData {
+                    append("libraryId", libraryId.toString())
+                    append("pathId", pathId.toString())
+                    append(
+                        "file",
+                        ChannelProvider(file.length()) { file.readChannel() },
+                        Headers.build {
+                            append(HttpHeaders.ContentDisposition, "filename=\"${fileName.replace("\"", "")}\"")
+                            append(HttpHeaders.ContentType, "application/epub+zip")
+                        },
+                    )
+                },
+            ) { onUpload { sent, total -> if (total != null && total > 0) onProgress(sent.toFloat() / total) } }
+        } catch (e: ClientRequestException) {
+            throw if (e.response.status == HttpStatusCode.Forbidden) NoUploadPermission() else e
+        }
+    }
+
+    // 403 means the account can't manage libraries: the folder watcher is then the only way in, so not an error.
+    suspend fun refreshLibrary(libraryId: Long) {
+        try {
+            client.put("api/v1/libraries/$libraryId/refresh")
+        } catch (e: ClientRequestException) {
+            if (e.response.status != HttpStatusCode.Forbidden) throw e
+        }
+    }
 
     suspend fun shelves(): List<ShelfDto> = client.get("api/v1/app/shelves").body()
 

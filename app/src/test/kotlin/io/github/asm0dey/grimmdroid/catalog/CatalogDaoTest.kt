@@ -70,6 +70,7 @@ class CatalogDaoTest {
         lastRead: Long? = null,
         progress: Float? = null,
         readStatus: String? = null,
+        sizeKb: Long? = null,
     ) = BookEntity(
         account,
         id,
@@ -84,7 +85,7 @@ class CatalogDaoTest {
         null,
         type,
         null,
-        null,
+        sizeKb,
         null,
         type == "AUDIOBOOK",
         generation,
@@ -95,6 +96,23 @@ class CatalogDaoTest {
         db.openHelper.readableDatabase
             .query("SELECT bookId, name FROM BookAuthor ${account?.let { "WHERE accountId = $it" }.orEmpty()} ORDER BY bookId, name")
             .use { buildList { while (it.moveToNext()) add(it.getLong(0) to it.getString(1)) } }
+
+    @Test
+    fun bookByTitleFindsABookCaseInsensitivelyWithTheSameSizeAndOnlyForThatAccount() =
+        runBlocking {
+            dao.upsertBooks(
+                listOf(
+                    book(1, title = "Dune", sizeKb = 40),
+                    book(2, title = "Other", account = 2, sizeKb = 5),
+                    book(3, title = "Other", sizeKb = 5),
+                ),
+            )
+            assertEquals(1L, dao.bookByTitle(1, "dUNE", 40)?.id)
+            assertEquals(3L, dao.bookByTitle(1, "other", 5)?.id)
+            assertNull(dao.bookByTitle(2, "Dune", 40))
+            // Another edition: same title, different file.
+            assertNull(dao.bookByTitle(1, "Dune", 41))
+        }
 
     @Test
     fun needsAuthorBackfillUntilAuthorRowsExist() =

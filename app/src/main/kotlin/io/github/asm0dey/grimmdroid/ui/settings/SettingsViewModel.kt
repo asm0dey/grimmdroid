@@ -95,6 +95,17 @@ class SettingsViewModel(
             .flowOn(Dispatchers.IO)
             .state(null)
 
+    /** Whether the current account's uploads have a remembered library folder. */
+    val uploadTargetSet: StateFlow<Boolean> =
+        settings.currentAccountId
+            .flatMapLatest { id -> id?.let { settings.uploadTarget(it).map { t -> t != null } } ?: flowOf(false) }
+            .state(false)
+
+    fun clearUploadTarget() {
+        val id = current.value?.id ?: return
+        viewModelScope.launch { settings.setUploadTarget(id, null) }
+    }
+
     val booksBytes: StateFlow<Long> =
         settings.currentAccountId
             .flatMapLatest { id ->
