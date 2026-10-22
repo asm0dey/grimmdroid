@@ -175,6 +175,7 @@ private fun ReadMarker(
             Icon(painterResource(R.drawable.ic_close), stringResource(R.string.state_dismissed), size, MaterialTheme.colorScheme.outline)
         }
 
-        ReadState.NOT_STARTED -> {}
+        // Unread is the default state, so it gets no marker.
+        ReadState.NOT_STARTED -> Unit
     }
 }
