@@ -9,7 +9,7 @@
 idiomatic_version_file_enable_tools = ["java"]
 
 [tools]
-ruby = "4.0.7"
+ruby = "4.0.8"
 actionlint = "1.7.12"
 android-sdk = "23.0"
 
