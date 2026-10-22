@@ -156,10 +156,14 @@ abstract class CatalogDao {
         id: Long,
     ): Flow<BookEntity?>
 
-    @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND title = :title COLLATE NOCASE ORDER BY id LIMIT 1")
+    // fileSizeKb is the server's bytes / 1024, so the same file gives the same number.
+    @Query(
+        "SELECT * FROM BookEntity WHERE accountId = :accountId AND title = :title COLLATE NOCASE AND fileSizeKb = :sizeKb ORDER BY id LIMIT 1",
+    )
     abstract suspend fun bookByTitle(
         accountId: Long,
         title: String,
+        sizeKb: Long,
     ): BookEntity?
 
     @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND seriesName = :name")

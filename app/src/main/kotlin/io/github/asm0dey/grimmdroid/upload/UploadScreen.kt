@@ -110,10 +110,12 @@ fun uploadViewModelFactory(
             savedTarget = { container.settings.uploadTarget(accountId).first() },
             saveTarget = { container.settings.setUploadTarget(accountId, it) },
             upload = { file, name, target, progress ->
-                BookUploader(container.api(account())) {
+                BookUploader(
+                    container.api(account()),
+                ) { title, kb ->
                     container.db
                         .catalogDao()
-                        .bookByTitle(accountId, it)
+                        .bookByTitle(accountId, title, kb)
                         ?.id
                 }.upload(file, name, target, progress)
             },
@@ -135,7 +137,7 @@ fun UploadScreen(
     onDone: () -> Unit,
 ) {
     val state by vm.state.collectAsState()
-    LaunchedEffect(state) { if (state == UploadState.Opening) onDone() }
+    LaunchedEffect(state) { if (state == UploadState.Opened) onDone() }
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         TopAppBar(
             title = { Text(stringResource(R.string.upload_book)) },
@@ -147,7 +149,7 @@ fun UploadScreen(
             Text(it, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyLarge)
         }
         when (val s = state) {
-            UploadState.Preparing, UploadState.Opening -> {
+            UploadState.Preparing, UploadState.Opened -> {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(16.dp))
             }
 
@@ -163,6 +165,11 @@ fun UploadScreen(
             is UploadState.Uploading -> {
                 body(stringResource(R.string.upload_progress, server))
                 LinearProgressIndicator({ s.progress }, Modifier.fillMaxWidth().padding(16.dp))
+            }
+
+            UploadState.Opening -> {
+                body(stringResource(R.string.upload_opening))
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(16.dp))
             }
 
             UploadState.Waiting -> {
@@ -184,6 +191,10 @@ fun UploadScreen(
 
             is UploadState.Failed -> {
                 body(stringResource(R.string.upload_failed, s.message))
+            }
+
+            is UploadState.OpenFailed -> {
+                body(stringResource(R.string.upload_open_failed, s.message))
             }
         }
     }

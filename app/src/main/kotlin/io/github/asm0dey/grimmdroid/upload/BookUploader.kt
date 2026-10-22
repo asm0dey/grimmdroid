@@ -46,11 +46,11 @@ sealed interface UploadResult {
 
 /**
  * Uploads a book and finds it on the server. The upload answers no book id and the server renames the file, so a new
- * book is spotted by its id appearing; an already-catalogued title (a duplicate) is the existing book.
+ * book is spotted by its id appearing; an already-catalogued title of the same size (a duplicate) is the existing book.
  */
 class BookUploader(
     private val api: GrimmoryApi,
-    private val existingBookId: suspend (title: String) -> Long?,
+    private val existingBookId: suspend (title: String, sizeKb: Long) -> Long?,
 ) {
     suspend fun upload(
         file: File,
@@ -58,7 +58,7 @@ class BookUploader(
         target: UploadTarget,
         onProgress: (Float) -> Unit,
     ): UploadResult {
-        val existing = epubTitle(file)?.let { existingBookId(it) }
+        val existing = epubTitle(file)?.let { existingBookId(it, file.length() / 1024) }
         val before = api.bookIds().toSet()
         try {
             api.upload(file, fileName, target.libraryId, target.pathId, onProgress)
@@ -76,7 +76,16 @@ class BookUploader(
             withTimeoutOrNull(if (target.watched) WATCHED_WAIT_MS else RESCAN_WAIT_MS) {
                 while (true) {
                     // shortcut: several new books at once → newest id wins; match by title if that bites
-                    (api.bookIds() - before).maxOrNull()?.let { return@withTimeoutOrNull it }
+                    // A poll can fail while the server rescans or the network blips; the upload itself already worked.
+                    val ids =
+                        try {
+                            api.bookIds()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            null
+                        }
+                    ids?.let { (it - before).maxOrNull() }?.let { return@withTimeoutOrNull it }
                     delay(POLL_MS)
                 }
                 @Suppress("UNREACHABLE_CODE")

@@ -37,6 +37,7 @@ private class Fakes(
     val libraries: List<LibraryDto> = oneLib,
     var saved: Pair<Long, Long>? = null,
     val result: UploadResult = UploadResult.Found(7),
+    val openWith: suspend (Long) -> Unit = {},
 ) {
     val file: File = File.createTempFile("upload", ".epub").apply { deleteOnExit() }
     val uploads = mutableListOf<UploadTarget>()
@@ -52,7 +53,10 @@ private class Fakes(
                 uploads += target
                 result
             },
-            open = { opened += it },
+            open = {
+                opened += it
+                openWith(it)
+            },
         )
 }
 
@@ -97,9 +101,21 @@ class UploadViewModelSpec :
             f.uploads shouldBe listOf(UploadTarget(4, 10, watched = false))
         }
 
-        test("Found → open(bookId) called, state Opening") {
+        test("Opening is shown while the book is fetched, Opened after") {
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val vm = Fakes(openWith = { gate.await() }).vm()
+            vm.state.value shouldBe UploadState.Opening
+            gate.complete(Unit)
+            vm.state.value shouldBe UploadState.Opened
+        }
+
+        test("open failure after a good upload is OpenFailed, not an upload failure") {
+            Fakes(openWith = { throw java.io.IOException("offline") }).vm().state.value shouldBe UploadState.OpenFailed("offline")
+        }
+
+        test("Found → open(bookId) called, state Opened") {
             val f = Fakes()
-            f.vm().state.value shouldBe UploadState.Opening
+            f.vm().state.value shouldBe UploadState.Opened
             f.opened shouldBe listOf(7L)
         }
 

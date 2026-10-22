@@ -55,6 +55,8 @@ private class FakeServer(
     private val uploadStatus: HttpStatusCode = HttpStatusCode.NoContent,
     private val newId: Long? = null,
     private val appearsAt: Long = 0,
+    /** The id-list call (1-based) that answers 503, like a server busy rescanning. */
+    private val failingIdCall: Int? = null,
 ) {
     var idCalls = 0
     var refreshes = 0
@@ -79,8 +81,12 @@ private class FakeServer(
         when {
             it.method == HttpMethod.Get && it.url.encodedPath == "/api/v1/app/books/ids" -> {
                 idCalls++
-                val ids = listOf(1L, 2L) + listOfNotNull(newId.takeIf { scope.testScheduler.currentTime >= appearsAt })
-                respond(ids.joinToString(",", "[", "]"), HttpStatusCode.OK, json)
+                if (idCalls == failingIdCall) {
+                    respond("", HttpStatusCode.ServiceUnavailable)
+                } else {
+                    val ids = listOf(1L, 2L) + listOfNotNull(newId.takeIf { scope.testScheduler.currentTime >= appearsAt })
+                    respond(ids.joinToString(",", "[", "]"), HttpStatusCode.OK, json)
+                }
             }
 
             it.method == HttpMethod.Post && it.url.encodedPath == "/api/v1/files/upload" -> {
@@ -113,7 +119,7 @@ private fun titled(title: String): File =
 
 private val watched = UploadTarget(3, 9, watched = true)
 private val unwatched = UploadTarget(3, 9, watched = false)
-private val noExisting: suspend (String) -> Long? = { null }
+private val noExisting: suspend (String, Long) -> Long? = { _, _ -> null }
 
 class BookUploaderSpec :
     FunSpec({
@@ -143,17 +149,53 @@ class BookUploaderSpec :
         test("known title → Found(existing) right after upload, no polling") {
             runTest {
                 val server = FakeServer(this)
-                BookUploader(server.api) { if (it == "Dune") 2 else null }.upload(titled("Dune"), "d.epub", watched) {} shouldBe
+                BookUploader(server.api) { title, _ ->
+                    if (title ==
+                        "Dune"
+                    ) {
+                        2
+                    } else {
+                        null
+                    }
+                }.upload(titled("Dune"), "d.epub", watched) {} shouldBe
                     UploadResult.Found(2)
                 server.uploads shouldBe 1
                 server.idCalls shouldBe 1
             }
         }
 
+        test("a failed poll keeps polling instead of failing the upload") {
+            runTest {
+                val server = FakeServer(this, newId = 7, appearsAt = 4_000, failingIdCall = 2)
+                BookUploader(server.api, noExisting).upload(titled("New"), "n.epub", watched) {} shouldBe UploadResult.Found(7)
+            }
+        }
+
+        test("existing match is looked up by title and file size") {
+            runTest {
+                val server = FakeServer(this)
+                val file = titled("Dune")
+                var asked: Pair<String, Long>? = null
+                BookUploader(server.api) { title, kb ->
+                    asked = title to kb
+                    2
+                }.upload(file, "d.epub", watched) {}
+                asked shouldBe ("Dune" to file.length() / 1024)
+            }
+        }
+
         test("upload 500 with known title → Found(existing)") {
             runTest {
                 val server = FakeServer(this, uploadStatus = HttpStatusCode.InternalServerError)
-                BookUploader(server.api) { if (it == "Dune") 2 else null }.upload(titled("Dune"), "d.epub", watched) {} shouldBe
+                BookUploader(server.api) { title, _ ->
+                    if (title ==
+                        "Dune"
+                    ) {
+                        2
+                    } else {
+                        null
+                    }
+                }.upload(titled("Dune"), "d.epub", watched) {} shouldBe
                     UploadResult.Found(2)
             }
         }

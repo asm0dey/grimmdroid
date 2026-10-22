@@ -64,6 +64,12 @@ sealed interface UploadState {
     ) : UploadState
 
     data object Opening : UploadState
+
+    data object Opened : UploadState
+
+    data class OpenFailed(
+        val message: String,
+    ) : UploadState
 }
 
 /** Copies the incoming file, picks the target folder (remembered per account), uploads, then opens the book. */
@@ -124,11 +130,24 @@ class UploadViewModel(
             }
         _state.value =
             when (result) {
-                is UploadResult.Found -> UploadState.Opening.also { open(result.bookId) }
+                is UploadResult.Found -> openBook(result.bookId)
                 UploadResult.NotPickedUp -> UploadState.NotPickedUp
                 UploadResult.NoPermission -> UploadState.NoPermission
                 is UploadResult.Failed -> UploadState.Failed(result.error.message ?: result.error.javaClass.simpleName)
             }
+    }
+
+    /** The upload worked by now: a failure from here on is reported as such, never as a failed upload. */
+    private suspend fun openBook(bookId: Long): UploadState {
+        _state.value = UploadState.Opening
+        return try {
+            open(bookId)
+            UploadState.Opened
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            UploadState.OpenFailed(e.message ?: e.javaClass.simpleName)
+        }
     }
 
     override fun onCleared() {

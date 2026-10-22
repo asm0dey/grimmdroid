@@ -184,8 +184,10 @@ fun AppNav(container: AppContainer) {
     OpenReadyBooks(container, snackbar)
     // A book handed in before any account is signed in waits here until one is.
     val incoming by IncomingBooks.incoming.collectAsState()
-    LaunchedEffect(incoming, current?.id, current?.signedOut) {
+    // Waits for the shell too: Onboarding's finish pops everything above it, an Upload pushed on top of it included.
+    LaunchedEffect(incoming, current?.id, current?.signedOut, inShell) {
         val uri = incoming ?: return@LaunchedEffect
+        if (!inShell) return@LaunchedEffect
         val account = current?.takeIf { !it.signedOut } ?: return@LaunchedEffect
         IncomingBooks.incoming.value = null
         nav.navigate(Upload(uri.toString(), account.id))

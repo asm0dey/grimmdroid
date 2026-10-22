@@ -230,5 +230,7 @@
     <string name="upload_not_picked_up">Uploaded. The server hasn\'t picked it up yet; it\'ll appear in your library once it does.</string>
     <string name="upload_no_permission">Your account can\'t upload books</string>
     <string name="upload_not_epub">Only EPUB books can be uploaded</string>
+    <string name="upload_opening">Uploaded. Opening the book…</string>
+    <string name="upload_open_failed">Uploaded, but couldn\'t open it: %1$s</string>
     <string name="upload_failed">Upload failed: %1$s</string>
 </resources>
