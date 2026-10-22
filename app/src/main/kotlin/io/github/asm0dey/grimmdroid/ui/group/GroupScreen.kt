@@ -91,7 +91,7 @@ fun GroupScreen(
         LazyColumn(Modifier.fillMaxSize()) {
             sections.forEach { section ->
                 if (headers) {
-                    item(key = "h:${section.seriesName}") {
+                    item(key = section.seriesName?.let { "s:$it" } ?: "none") {
                         Text(
                             section.seriesName ?: stringResource(R.string.not_in_series),
                             Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
