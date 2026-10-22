@@ -173,6 +173,10 @@ class ReaderActivity : FragmentActivity() {
 
     // The page on screen, for "is it bookmarked"; null until the navigator reports one.
     private var page by mutableStateOf<PageSpan?>(null)
+
+    // Readium reports its first page once the start resource has loaded; a go() before that strands it, never
+    // reporting a place again (readium/kotlin-toolkit State.Loading): until then, a jump restarts the navigator.
+    private var navigatorReady = false
     private val scrolled get() = settings.epub.scroll == true
 
     // Deprecated in Readium but the only page count it reports; with scroll on it counts the whole resource as one page.
@@ -184,6 +188,7 @@ class ReaderActivity : FragmentActivity() {
                 totalPages: Int,
                 locator: Locator,
             ) {
+                navigatorReady = true
                 if (!scrolled) page = PageSpan.of(locator, 1.0 / totalPages.coerceAtLeast(1))
             }
         }
@@ -282,10 +287,15 @@ class ReaderActivity : FragmentActivity() {
             // A commit after onSaveInstanceState throws: wait until the activity is visible again.
             withStarted {
                 publication = pub
-                supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub))
-                supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
+                restartNavigator(pub)
             }
         }
+    }
+
+    /** A new navigator at the view model's place (the one recorded last, else the saved one, else the start). */
+    private fun restartNavigator(pub: Publication) {
+        supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub))
+        supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
     }
 
     private fun navigatorFactory(
@@ -294,6 +304,7 @@ class ReaderActivity : FragmentActivity() {
     ) = EpubNavigatorFactory(pub, readerNavigatorConfiguration(resources.configuration.fontScale))
         .also {
             declaredFonts = fonts
+            navigatorReady = false
         }.createFragmentFactory(
             initialLocator = initial,
             initialPreferences = settings.toEpubPreferences(systemDark),
@@ -310,8 +321,7 @@ class ReaderActivity : FragmentActivity() {
         if (declaredFonts == null || declaredFonts == fonts) return
         withStarted {
             if (declaredFonts == fonts) return@withStarted // another refresh got here first
-            supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub))
-            supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
+            restartNavigator(pub)
         }
     }
 
@@ -353,7 +363,12 @@ class ReaderActivity : FragmentActivity() {
                         }
                     }
                 }
-                launch { vm.navigateTo.collect { navigator.go(it) } }
+                launch {
+                    vm.navigateTo.collect { target ->
+                        // The view model recorded the target: a new navigator starts there.
+                        if (navigatorReady) navigator.go(target) else publication?.let(::restartNavigator)
+                    }
+                }
             }
         }
     }
