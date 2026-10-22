@@ -406,6 +406,12 @@ class LibrarySyncTest {
     }
 
     @Test
+    fun blankAuthorNamesAreDroppedFromTheAuthorsString() {
+        assertEquals("", BookSummaryDto(id = 1, authors = listOf(" ", "")).toEntity(1, 1).authors)
+        assertEquals("A, B", BookSummaryDto(id = 1, authors = listOf(" A ", " ", "B")).toEntity(1, 1).authors)
+    }
+
+    @Test
     fun clockGoingBackwardsStillDeletesAbsentBooks() =
         runBlocking {
             server.titles = mapOf(1L to "A", 2L to "B")

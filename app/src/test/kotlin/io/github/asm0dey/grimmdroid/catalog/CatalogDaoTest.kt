@@ -22,6 +22,8 @@ import androidx.paging.PagingSource
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.asm0dey.grimmdroid.reader.PendingUpload
+import io.github.asm0dey.grimmdroid.reader.ReadingPosition
 import io.github.asm0dey.grimmdroid.ui.search.ftsQuery
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -101,6 +103,31 @@ class CatalogDaoTest {
             assertTrue(dao.needsAuthorBackfill(1))
             dao.upsertBooksWithAuthors(listOf(book(1, authors = "A")), mapOf(1L to listOf("A")))
             assertFalse(dao.needsAuthorBackfill(1))
+        }
+
+    @Test
+    fun oldGenerationBookWithoutAuthorRowsNeverNeedsBackfill() =
+        runBlocking {
+            dao.upsertBooks(listOf(book(1, authors = "A", generation = 1)))
+            dao.upsertBooksWithAuthors(listOf(book(2, authors = "B", generation = 2)), mapOf(2L to listOf("B")))
+            assertFalse(dao.needsAuthorBackfill(1))
+        }
+
+    @Test
+    fun pendingLocalPositionSurvivesServerUpsert() =
+        runBlocking {
+            db.readerDao().upsertPosition(ReadingPosition(1, 1, "{}", 0.995, PendingUpload.NORMAL, 42))
+            db.readerDao().upsertPosition(ReadingPosition(1, 2, "{}", 0.2, PendingUpload.NONE, 43))
+            dao.upsertBooksWithAuthors(
+                listOf(book(1, lastRead = 7, progress = 60f), book(2, lastRead = 8, progress = 60f)),
+                emptyMap(),
+            )
+            val pending = dao.book(1, 1).first()!!
+            assertEquals(99.5f, pending.readProgress!!, 0.001f)
+            assertEquals(42L, pending.lastReadTime)
+            val synced = dao.book(1, 2).first()!!
+            assertEquals(60f, synced.readProgress!!, 0.001f)
+            assertEquals(8L, synced.lastReadTime)
         }
 
     @Test
@@ -301,10 +328,11 @@ class CatalogDaoTest {
                     book(2, lastRead = 9, progress = 10f),
                     book(3, lastRead = 7, progress = 100f),
                     book(4),
+                    book(5, lastRead = 8, progress = 99.2f),
                 ),
             )
             assertEquals(listOf(2L, 1L), dao.continueReading(1).first().map { it.id })
-            assertEquals(listOf(4L, 3L), dao.recentlyAdded(1, 2).first().map { it.id })
+            assertEquals(listOf(5L, 4L), dao.recentlyAdded(1, 2).first().map { it.id })
             assertEquals("T1", dao.book(1, 1).first()?.title)
             assertNull(dao.book(2, 1).first())
         }

@@ -154,7 +154,7 @@ internal fun BookSummaryDto.toEntity(
     accountId = accountId,
     id = id,
     title = title.orEmpty(),
-    authors = authors.joinToString(", "),
+    authors = authors.map { it.trim() }.filter { it.isNotEmpty() }.joinToString(", "),
     seriesName = seriesName,
     seriesNumber = seriesNumber,
     libraryId = libraryId,
