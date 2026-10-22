@@ -176,6 +176,8 @@ private fun ReadMarker(
         }
 
         // Unread is the default state, so it gets no marker.
-        ReadState.NOT_STARTED -> Unit
+        ReadState.NOT_STARTED -> {
+            Unit
+        }
     }
 }
