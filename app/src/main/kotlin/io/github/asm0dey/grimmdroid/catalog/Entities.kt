@@ -52,6 +52,12 @@ data class BookAuthor(
     val name: String,
 )
 
+/** One (author, book) pair; the author column is aliased `name`, which BookEntity doesn't have. */
+data class AuthorBook(
+    val name: String,
+    @Embedded val book: BookEntity,
+)
+
 @Fts4(contentEntity = BookEntity::class)
 @Entity
 data class BookFts(

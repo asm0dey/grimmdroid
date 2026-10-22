@@ -114,6 +114,58 @@ class CatalogDaoTest {
         }
 
     @Test
+    fun downloadedAbsentBookKeepsItsAuthorRows() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(listOf(book(1, generation = 1)), mapOf(1L to listOf("A")))
+            dao.upsertDownload(DownloadEntity(1, 1, 5, "f1", "/p1", 10, DownloadState.DONE, 1f))
+            dao.deleteBooksNotIn(1, 2)
+            assertEquals(listOf(1L to "A"), authorRows())
+        }
+
+    @Test
+    fun seriesBooksMatchesExactNameAcrossLibrariesAndAccount() =
+        runBlocking {
+            dao.upsertBooks(
+                listOf(
+                    book(1, series = "Dune", library = 1),
+                    book(2, series = "Dune", library = 2),
+                    book(3, series = "Dune "),
+                    book(4, series = "Dune", account = 2),
+                ),
+            )
+            assertEquals(
+                listOf(1L, 2L),
+                dao
+                    .seriesBooks(1, "Dune")
+                    .first()
+                    .map { it.id }
+                    .sorted(),
+            )
+            assertEquals(
+                listOf(1L, 2L, 3L),
+                dao
+                    .seriesBooksAll(1)
+                    .first()
+                    .map { it.id }
+                    .sorted(),
+            )
+        }
+
+    @Test
+    fun authorBooksAndPairsFollowBookAuthorRows() =
+        runBlocking {
+            dao.upsertBooksWithAuthors(
+                listOf(book(1), book(2), book(3), book(4, account = 2)),
+                mapOf(1L to listOf("Tolkien, J.R.R.", "Lee"), 2L to listOf("Lee"), 4L to listOf("Tolkien, J.R.R.")),
+            )
+            assertEquals(listOf(1L), dao.authorBooks(1, "Tolkien, J.R.R.").first().map { it.id })
+            assertEquals(emptyList<Long>(), dao.authorBooks(1, "Tolkien").first().map { it.id })
+            val pairs = dao.authorBookPairs(1).first().map { it.name to it.book.id }
+            assertEquals(setOf("Lee" to 1L, "Tolkien, J.R.R." to 1L, "Lee" to 2L), pairs.toSet())
+            assertEquals(3, pairs.size)
+        }
+
+    @Test
     fun deleteAccountClearsOnlyThatAccountsAuthorRows() =
         runBlocking {
             dao.upsertBooksWithAuthors(listOf(book(1)), mapOf(1L to listOf("A")))

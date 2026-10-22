@@ -130,6 +130,30 @@ abstract class CatalogDao {
         id: Long,
     ): Flow<BookEntity?>
 
+    @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND seriesName = :name")
+    abstract fun seriesBooks(
+        accountId: Long,
+        name: String,
+    ): Flow<List<BookEntity>>
+
+    @Query("SELECT * FROM BookEntity WHERE accountId = :accountId AND seriesName IS NOT NULL")
+    abstract fun seriesBooksAll(accountId: Long): Flow<List<BookEntity>>
+
+    @Query(
+        "SELECT b.* FROM BookEntity b JOIN BookAuthor a ON a.accountId = b.accountId AND a.bookId = b.id " +
+            "WHERE b.accountId = :accountId AND a.name = :name",
+    )
+    abstract fun authorBooks(
+        accountId: Long,
+        name: String,
+    ): Flow<List<BookEntity>>
+
+    @Query(
+        "SELECT a.name AS name, b.* FROM BookEntity b JOIN BookAuthor a ON a.accountId = b.accountId AND a.bookId = b.id " +
+            "WHERE b.accountId = :accountId",
+    )
+    abstract fun authorBookPairs(accountId: Long): Flow<List<AuthorBook>>
+
     @Query(
         "SELECT * FROM BookEntity WHERE accountId = :accountId AND lastReadTime IS NOT NULL AND readProgress < 100 " +
             "ORDER BY lastReadTime DESC LIMIT :limit",
