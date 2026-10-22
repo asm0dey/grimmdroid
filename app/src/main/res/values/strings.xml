@@ -216,4 +216,9 @@
     <string name="state_in_progress">In progress, %1$d%%</string>
     <string name="state_dismissed">Dismissed</string>
     <string name="up_next">Up next</string>
+    <string name="library_books">Books</string>
+    <string name="library_authors">Authors</string>
+    <string name="library_series">Series</string>
+    <string name="not_started">Not started</string>
+    <string name="no_groups">Nothing here</string>
 </resources>

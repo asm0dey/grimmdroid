@@ -78,6 +78,7 @@ import io.github.asm0dey.grimmdroid.ui.group.GroupScreen
 import io.github.asm0dey.grimmdroid.ui.group.GroupViewModel
 import io.github.asm0dey.grimmdroid.ui.home.HomeScreen
 import io.github.asm0dey.grimmdroid.ui.home.HomeViewModel
+import io.github.asm0dey.grimmdroid.ui.library.GroupsViewModel
 import io.github.asm0dey.grimmdroid.ui.library.LibraryContent
 import io.github.asm0dey.grimmdroid.ui.library.LibraryViewModel
 import io.github.asm0dey.grimmdroid.ui.library.SearchLauncher
@@ -241,7 +242,16 @@ fun AppNav(container: AppContainer) {
             }
             composable<Library> {
                 val vm: LibraryViewModel = viewModel(factory = LibraryViewModel.factory(container, null))
-                LibraryContent(vm, baseUrl, syncStatus, openBook) {
+                val groups: GroupsViewModel = viewModel(factory = GroupsViewModel.factory(container))
+                LibraryContent(
+                    vm,
+                    baseUrl,
+                    syncStatus,
+                    openBook,
+                    groups,
+                    { name -> current?.id?.let { nav.navigate(Author(name, it)) } },
+                    { name -> current?.id?.let { nav.navigate(Series(name, it)) } },
+                ) {
                     SearchLauncher(onSearch = { nav.navigate(Search) }, onAccount = { sheetOpen = true })
                 }
             }

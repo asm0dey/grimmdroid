@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
@@ -45,10 +46,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +69,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
@@ -84,13 +90,26 @@ private val SortLabels =
         BookSort.SERIES to R.string.sort_series,
     )
 
-/** The library grid or list; Library and ShelfBooks both show it, Library with a search bar in [header]. */
+private val ModeLabels =
+    listOf(
+        LibraryMode.BOOKS to R.string.library_books,
+        LibraryMode.AUTHORS to R.string.library_authors,
+        LibraryMode.SERIES to R.string.library_series,
+    )
+
+/**
+ * The library grid or list; Library and ShelfBooks both show it, Library with a search bar in [header].
+ * With [groups] (Library only) a switch also offers the authors and series lists.
+ */
 @Composable
 fun LibraryContent(
     vm: LibraryViewModel,
     baseUrl: String?,
     syncStatus: String?,
     onBook: (Long) -> Unit,
+    groups: GroupsViewModel? = null,
+    onAuthor: (String) -> Unit = {},
+    onSeries: (String) -> Unit = {},
     header: @Composable () -> Unit = {},
 ) {
     val query by vm.query.collectAsState()
@@ -98,9 +117,27 @@ fun LibraryContent(
     val layout by vm.layout.collectAsState()
     val books = vm.books.collectAsLazyPagingItems()
     var filtersOpen by rememberSaveable { mutableStateOf(false) }
+    var mode by rememberSaveable { mutableStateOf(LibraryMode.BOOKS) }
+    // Hoisted so the books keep their scroll position while the authors or series list is shown.
+    val grid = rememberLazyGridState()
+    SideEffect {
+        groups?.mode?.value = mode
+        groups?.libraryId?.value = query.libraryId
+    }
 
     Column(Modifier.fillMaxSize()) {
         header()
+        if (groups != null) {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                ModeLabels.forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = mode == value,
+                        onClick = { mode = value },
+                        shape = SegmentedButtonDefaults.itemShape(i, ModeLabels.size),
+                    ) { Text(stringResource(label)) }
+                }
+            }
+        }
         // Also shown while filtered, so a library that vanished in a sync can still be cleared with "All".
         if (libraries.size > 1 || query.libraryId != null) {
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -121,61 +158,83 @@ fun LibraryContent(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            SortMenu(query.sort, vm::setSort)
-            IconButton(onClick = { filtersOpen = true }) {
-                Icon(painterResource(R.drawable.ic_filter_list), stringResource(R.string.filter))
-            }
-            if (layout == Layout.GRID) {
-                IconButton(onClick = { vm.setLayout(Layout.LIST) }) {
-                    Icon(painterResource(R.drawable.ic_view_list), stringResource(R.string.list_view))
-                }
+            if (groups != null && mode != LibraryMode.BOOKS) {
+                val notStarted by groups.notStartedOnly.collectAsState()
+                FilterChip(notStarted, { groups.notStartedOnly.value = !notStarted }, { Text(stringResource(R.string.not_started)) })
             } else {
-                IconButton(onClick = { vm.setLayout(Layout.GRID) }) {
-                    Icon(painterResource(R.drawable.ic_grid_view), stringResource(R.string.grid_view))
+                SortMenu(query.sort, vm::setSort)
+                IconButton(onClick = { filtersOpen = true }) {
+                    Icon(painterResource(R.drawable.ic_filter_list), stringResource(R.string.filter))
+                }
+                if (layout == Layout.GRID) {
+                    IconButton(onClick = { vm.setLayout(Layout.LIST) }) {
+                        Icon(painterResource(R.drawable.ic_view_list), stringResource(R.string.list_view))
+                    }
+                } else {
+                    IconButton(onClick = { vm.setLayout(Layout.GRID) }) {
+                        Icon(painterResource(R.drawable.ic_grid_view), stringResource(R.string.grid_view))
+                    }
                 }
             }
         }
 
-        Box(Modifier.weight(1f)) {
-            val grid = rememberLazyGridState()
-            LazyVerticalGrid(
-                columns = if (layout == Layout.GRID) GridCells.Adaptive(110.dp) else GridCells.Fixed(1),
-                state = grid,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(books.itemCount, key = books.itemKey { it.book.id }, contentType = books.itemContentType { layout }) { i ->
-                    val row = books[i]
-                    when {
-                        layout == Layout.LIST -> BookListRow(row, baseUrl, onBook)
-                        row == null -> CoverPlaceholder(Modifier.padding(4.dp))
-                        else -> BookTile(row, baseUrl, onBook)
-                    }
-                }
-            }
-            if (books.itemCount == 0 && books.loadState.refresh is LoadState.NotLoading) {
-                Text(
-                    stringResource(R.string.no_books),
-                    Modifier.align(Alignment.Center).padding(32.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (query.sort == BookSort.TITLE || query.sort == BookSort.AUTHOR) {
-                FastScroller(grid, books.itemCount, { i ->
-                    books
-                        .peek(i)
-                        ?.book
-                        ?.let { if (query.sort == BookSort.TITLE) it.title else it.authors }
-                        ?.firstOrNull()
-                        ?.uppercase()
-                }, Modifier.align(Alignment.TopEnd))
-            }
+        if (groups != null && mode != LibraryMode.BOOKS) {
+            val list by groups.groups.collectAsState()
+            GroupsList(list, if (mode == LibraryMode.AUTHORS) onAuthor else onSeries, Modifier.weight(1f))
+        } else {
+            BookGrid(books, grid, layout, query.sort, baseUrl, onBook, Modifier.weight(1f))
         }
     }
 
     if (filtersOpen) {
         FilterSheet(query.formats, query.downloadedOnly, vm::setFormats, vm::setDownloadedOnly) { filtersOpen = false }
+    }
+}
+
+@Composable
+private fun BookGrid(
+    books: LazyPagingItems<BookRow>,
+    grid: LazyGridState,
+    layout: Layout,
+    sort: BookSort,
+    baseUrl: String?,
+    onBook: (Long) -> Unit,
+    modifier: Modifier,
+) {
+    Box(modifier) {
+        LazyVerticalGrid(
+            columns = if (layout == Layout.GRID) GridCells.Adaptive(110.dp) else GridCells.Fixed(1),
+            state = grid,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            items(books.itemCount, key = books.itemKey { it.book.id }, contentType = books.itemContentType { layout }) { i ->
+                val row = books[i]
+                when {
+                    layout == Layout.LIST -> BookListRow(row, baseUrl, onBook)
+                    row == null -> CoverPlaceholder(Modifier.padding(4.dp))
+                    else -> BookTile(row, baseUrl, onBook)
+                }
+            }
+        }
+        if (books.itemCount == 0 && books.loadState.refresh is LoadState.NotLoading) {
+            Text(
+                stringResource(R.string.no_books),
+                Modifier.align(Alignment.Center).padding(32.dp),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (sort == BookSort.TITLE || sort == BookSort.AUTHOR) {
+            FastScroller(grid, books.itemCount, { i ->
+                books
+                    .peek(i)
+                    ?.book
+                    ?.let { if (sort == BookSort.TITLE) it.title else it.authors }
+                    ?.firstOrNull()
+                    ?.uppercase()
+            }, Modifier.align(Alignment.TopEnd))
+        }
     }
 }
 
