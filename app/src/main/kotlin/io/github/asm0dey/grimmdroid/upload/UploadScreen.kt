@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 
 /** A book file another app (or the in-app picker) handed us; AppNav starts its upload once an account is signed in. */
 object IncomingBooks {
@@ -84,10 +85,10 @@ private suspend fun copyToCache(
             resolver.openInputStream(uri)?.use { input -> target.outputStream().use { input.copyTo(it) } } ?: return@withContext null
             target to name
         } catch (_: IOException) {
-            target.delete()
+            Files.deleteIfExists(target.toPath())
             null
         } catch (_: SecurityException) {
-            target.delete()
+            Files.deleteIfExists(target.toPath())
             null
         }
     }

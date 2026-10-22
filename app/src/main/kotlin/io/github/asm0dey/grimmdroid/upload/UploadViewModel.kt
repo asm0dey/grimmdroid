@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
+import java.nio.file.Files
 
 /** One library folder a book can be uploaded into. */
 data class TargetOption(
@@ -151,6 +152,6 @@ class UploadViewModel(
     }
 
     override fun onCleared() {
-        file?.first?.delete()
+        file?.first?.let { Files.deleteIfExists(it.toPath()) }
     }
 }
