@@ -23,26 +23,47 @@ import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.SurfaceTexture
 import android.os.SystemClock
+import android.util.Log
 import android.view.MotionEvent
+import android.view.TextureView
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import com.irurueta.android.gl.curl.CurlPage
 import com.irurueta.android.gl.curl.CurlTextureView
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.abs
+
+/** What [TurnOverlay.turn] did. Only [UNSUPPORTED] means the caller should turn some other way. */
+enum class TurnResult {
+    /** A curl turn is under way; [TurnOverlay]'s `onSettled` will report it. */
+    STARTED,
+
+    /** A turn is running already: do nothing (a held key turns once). */
+    BUSY,
+
+    /** The curl is off, or there is no picture of the current page: fall back. */
+    UNSUPPORTED,
+}
 
 /**
  * Wraps the navigator container [content] and plays a page curl over it: for finger drags and
  * flicks (it owns touch routing), and for [turn]s that play by themselves (keys, edge taps).
  *
  * Main thread only, like the views and the [TurnSession] it drives ([scope] must be main-thread).
+ * [content] must fill the overlay: events reach it in the overlay's coordinates.
  *
- * The curl view is the cover: it sits on top, transparent while idle, and is shown holding the
- * current picture before anything moves. Pages are indexed by [Side] ordinal: 0 previous,
- * 1 current, 2 next. [jump], [awaitPainted] and [onSettled] go to [TurnSession] as they are.
+ * The curl view is the cover: it sits on top, transparent while idle. A turn first raises it
+ * holding the current page, once a frame drawn with that page has reached the screen, and only
+ * then lets Readium jump underneath. Pages are indexed by [Side] ordinal: 0 previous, 1 current,
+ * 2 next. [jump] and [awaitPainted] go to [TurnSession]; [onSettled] fires once per started turn.
  *
  * Touch: events go to [content] until a move is clearly horizontal (beyond touch slop, more
  * horizontal than vertical, [curlActive], not [selecting]); then [content] gets ACTION_CANCEL and
@@ -52,7 +73,7 @@ import kotlin.math.abs
 class TurnOverlay(
     context: Context,
     private val content: View,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
     jump: suspend (forward: Boolean) -> Boolean,
     awaitPainted: suspend () -> Unit,
     onSettled: (turned: Boolean) -> Unit,
@@ -63,7 +84,7 @@ class TurnOverlay(
     var speedMs: Int = 450
 
     /** A turn is running, or the curl is still finishing one: new turns and touches are ignored. */
-    val turning: Boolean get() = session.busy || curlRunning
+    val turning: Boolean get() = raising || session.busy || curlRunning
 
     private val pictures = PagePictures(content)
 
@@ -87,28 +108,35 @@ class TurnOverlay(
                 }
         }
 
-    private val session =
-        TurnSession(scope, jump, awaitPainted, onCover = ::cover, onSettled = { turned ->
-            snapshot()
-            onSettled(turned)
-        })
+    private val settled: (Boolean) -> Unit = { turned ->
+        curl.alpha = 0f // the overlay raises the cover itself, so the session may never lower it
+        snapshot()
+        onSettled(turned)
+    }
+
+    private val session = TurnSession(scope, jump, awaitPainted, onCover = ::cover, onSettled = settled)
 
     private var curlRunning = false // the curl has started and its turnListener hasn't fired
     private var forward = true
     private var auto = false
-    private var fromIndex = Side.CURRENT.ordinal // the page the turn starts from
-    private var snapshotPending = false // the turn jumped first: picture the new position before curling
+    private var jumpFirst = false // no picture of the target page: Readium jumps under the cover first
+    private var instant = false // the cover never came up: the turn runs with no curl
+    private var raising = false // waiting for a frame with the current page before showing the cover
+    private var framesToWait = 0
+    private var raiseTimeout: Job? = null
+    private var expected = false // where the session was told the curl ends: on the new page or not
+    private var watchdog: Job? = null
 
     private enum class Touch { PASS, DRAG, SWALLOW }
 
     private var touch = Touch.PASS
-    private var vertical = false // this gesture went vertical first: it stays with the navigator
+    private var navigatorOwns = false // the navigator keeps this gesture (it went vertical first, or no curl)
     private var downX = 0f
     private var downY = 0f
     private var lastX = 0f
     private var lastY = 0f
     private var takeoverAt = 0L
-    private var released = false // the finger lifted before the curl started (jump-first turn)
+    private var released = false // the finger lifted before the curl started
     private var releaseCompletes = false
     private var fingerDown = false // the curl got a DOWN and no UP/CANCEL yet
     private var curlDownTime = 0L
@@ -121,23 +149,38 @@ class TurnOverlay(
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(curl, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         curl.turnListener = { completed ->
-            curlRunning = false
-            fingerDown = false
-            session.curlFinished(completed)
-            idle()
+            if (curlRunning) {
+                curlRunning = false
+                fingerDown = false
+                watchdog?.cancel()
+                session.curlFinished(completed)
+                idle()
+            }
+        }
+        // GL's own listener stays in charge; this only learns when a new frame has reached the view.
+        curl.surfaceTextureListener?.let { gl ->
+            curl.surfaceTextureListener =
+                object : TextureView.SurfaceTextureListener by gl {
+                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+                        gl.onSurfaceTextureUpdated(surface)
+                        frameDrawn()
+                    }
+                }
         }
     }
 
-    /** An automatic turn. False when the curl is off, so the caller turns some other way; a turn running already swallows it. */
-    fun turn(forward: Boolean): Boolean {
-        if (!curlActive()) return false
-        if (turning) return true
-        return begin(forward, auto = true)
-    }
+    /** An automatic turn; see [TurnResult]. */
+    fun turn(forward: Boolean): TurnResult =
+        when {
+            turning -> TurnResult.BUSY
+            !curlActive() -> TurnResult.UNSUPPORTED
+            begin(forward, auto = true) -> TurnResult.STARTED
+            else -> TurnResult.UNSUPPORTED
+        }
 
     /** Redraws the neighbour pictures; ignored mid-turn, when Readium may be on the target page. */
     fun refreshPictures() {
-        if (!session.busy) snapshot()
+        if (!turning) snapshot()
     }
 
     fun invalidatePictures() {
@@ -145,18 +188,30 @@ class TurnOverlay(
         copies.fill(null)
     }
 
-    /** Ends any turn now; the reader stays where it is. */
+    /** Ends any turn now, curl included; the reader stays where it is. */
     fun abort() {
-        flick?.cancel()
+        val wasRaising = raising
+        stopRaising()
+        resetCurl()
+        curl.alpha = 0f
         session.abort()
+        if (wasRaising) settled(false) // the session never started: report the turn here
     }
+
+    /** Call from the activity's onPause: ends any turn and pauses the curl's GL thread. */
+    fun onPause() {
+        abort()
+        curl.onPause()
+    }
+
+    fun onResume() = curl.onResume()
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
             // The last gesture never ended (a flick still moving the curl has ended: it lifts by itself).
             if (fingerDown && flick == null) sendToCurl(MotionEvent.ACTION_CANCEL, lastX, lastY)
             touch = if (turning) Touch.SWALLOW else Touch.PASS
-            vertical = false
+            navigatorOwns = false
             downX = ev.x
             downY = ev.y
             velocity?.recycle()
@@ -164,9 +219,23 @@ class TurnOverlay(
         }
         velocity?.addMovement(ev)
         when (touch) {
-            Touch.SWALLOW -> Unit
-            Touch.PASS -> if (ev.actionMasked == MotionEvent.ACTION_MOVE && takesOver(ev)) takeOver(ev) else content.dispatchTouchEvent(ev)
-            Touch.DRAG -> drag(ev)
+            Touch.SWALLOW -> {
+                Unit
+            }
+
+            Touch.PASS -> {
+                if (ev.actionMasked == MotionEvent.ACTION_MOVE && takesOver(ev) &&
+                    takeOver(ev)
+                ) {
+                    Unit
+                } else {
+                    content.dispatchTouchEvent(ev)
+                }
+            }
+
+            Touch.DRAG -> {
+                drag(ev)
+            }
         }
         if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
             velocity?.recycle()
@@ -178,20 +247,24 @@ class TurnOverlay(
     private fun takesOver(ev: MotionEvent): Boolean {
         val dx = abs(ev.x - downX)
         val dy = abs(ev.y - downY)
-        if (dy > slop && dy >= dx) vertical = true
-        return !vertical && ev.pointerCount == 1 && dx > slop && dx > dy && curlActive() && !selecting()
+        if (dy > slop && dy >= dx) navigatorOwns = true
+        return !navigatorOwns && ev.pointerCount == 1 && dx > slop && dx > dy && curlActive() && !selecting()
     }
 
-    private fun takeOver(ev: MotionEvent) {
+    /** False when no turn can start: the navigator keeps the gesture. */
+    private fun takeOver(ev: MotionEvent): Boolean {
+        lastX = ev.x
+        lastY = ev.y
+        takeoverAt = ev.eventTime
+        if (!begin(ev.x < downX, auto = false)) {
+            navigatorOwns = true
+            return false
+        }
         val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
         content.dispatchTouchEvent(cancel)
         cancel.recycle()
         touch = Touch.DRAG
-        takeoverAt = ev.eventTime
-        lastX = ev.x
-        lastY = ev.y
-        released = false
-        if (!begin(ev.x < downX, auto = false)) touch = Touch.SWALLOW
+        return true
     }
 
     private fun drag(ev: MotionEvent) {
@@ -202,7 +275,7 @@ class TurnOverlay(
         }
         if (action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL && action != MotionEvent.ACTION_MOVE) return
         if (!fingerDown) {
-            // The curl hasn't started yet (it waits for a jump-first picture): remember how the finger left.
+            // The curl hasn't started yet (the cover is coming up, or Readium jumps first): remember how the finger left.
             if (action != MotionEvent.ACTION_MOVE && !released) {
                 released = true
                 releaseCompletes = action == MotionEvent.ACTION_UP && (isFlick(ev) || passedMiddle(lastX))
@@ -234,27 +307,35 @@ class TurnOverlay(
     }
 
     /**
-     * A flick plays the rest of the turn by moving the finger to the completed position over the
-     * release duration, then lifts it. Not [CurlTextureView.autoTurn]: the finger's curl is still
-     * running, and a new curl must not start before its turnListener fires.
+     * A flick plays the rest of the turn by moving the finger, decelerating from finger speed, to
+     * the completed position: a page width past the left edge forward, the right edge back, at the
+     * anchor's y. There it lifts with a zero-length finish, so the turn reports at once. Not
+     * [CurlTextureView.autoTurn]: the finger's curl is still running, and a new curl must not
+     * start before its turnListener fires.
      */
     private fun playFlick() {
         val endX = if (forward) -width.toFloat() else width.toFloat()
         val startX = lastX
-        val y = lastY
+        val startY = lastY
+        val endY = downY
         flick =
             ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = curl.releaseDurationMs.toLong()
+                interpolator = DecelerateInterpolator()
                 addUpdateListener {
-                    val x = startX + (endX - startX) * (it.animatedValue as Float)
-                    sendToCurl(MotionEvent.ACTION_MOVE, x, y)
+                    val v = it.animatedValue as Float
+                    val x = startX + (endX - startX) * v
+                    sendToCurl(MotionEvent.ACTION_MOVE, x, startY + (endY - startY) * v)
                     session.passedMiddle(passedMiddle(x))
                 }
                 addListener(
                     object : AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: Animator) { // also after cancel
+                        override fun onAnimationEnd(animation: Animator) {
                             flick = null
-                            sendToCurl(MotionEvent.ACTION_UP, endX, y)
+                            val release = curl.releaseDurationMs
+                            curl.releaseDurationMs = 0 // read once, by the UP's finish
+                            sendToCurl(MotionEvent.ACTION_UP, endX, endY)
+                            curl.releaseDurationMs = release
                         }
                     },
                 )
@@ -264,52 +345,81 @@ class TurnOverlay(
 
     private fun passedMiddle(x: Float) = if (forward) x < width / 2f else x > width / 2f
 
+    /** Raises the cover; false (nothing started) when there is no picture of the current page. */
     private fun begin(
         forward: Boolean,
         auto: Boolean,
     ): Boolean {
         if (turning) return false
-        val target = if (forward) Side.NEXT else Side.PREVIOUS
-        val hasPicture = pictures[Side.CURRENT] != null && pictures[target] != null
+        if (copies[Side.CURRENT.ordinal] == null) snapshot() // e.g. after invalidatePictures
+        if (copies[Side.CURRENT.ordinal] == null) return false
         this.forward = forward
         this.auto = auto
-        // Jumping first leaves the old page one step behind the new current one.
-        fromIndex =
-            if (hasPicture) {
-                Side.CURRENT.ordinal
-            } else if (forward) {
-                Side.PREVIOUS.ordinal
-            } else {
-                Side.NEXT.ordinal
+        instant = false
+        released = false
+        jumpFirst = copies[target()] == null
+        raising = true
+        framesToWait = 2
+        if (curl.currentIndex != Side.CURRENT.ordinal) curl.setCurrentIndex(Side.CURRENT.ordinal)
+        curl.requestRender()
+        raiseTimeout =
+            scope.launch {
+                delay(FRAME_WAIT_MS)
+                Log.w(TAG, "no curl frame within $FRAME_WAIT_MS ms; turning without a curl")
+                stopRaising()
+                instant = true
+                session.start(forward, jumpNow = false, hasPicture = true) { session.curlFinished(true) }
             }
-        snapshotPending = !hasPicture
-        return session.start(forward, jumpNow = auto, hasPicture = hasPicture, onReady = ::play)
+        return true
+    }
+
+    private fun target() = if (forward) Side.NEXT.ordinal else Side.PREVIOUS.ordinal
+
+    /**
+     * The first update after [begin] may hold a frame started before the pages were set, so the
+     * cover waits for a second one, requested after the first has arrived.
+     */
+    private fun frameDrawn() {
+        if (!raising) return
+        if (--framesToWait > 0) return curl.requestRender()
+        stopRaising()
+        curl.alpha = 1f
+        session.start(forward, jumpNow = auto, hasPicture = !jumpFirst, onReady = ::play)
+    }
+
+    private fun stopRaising() {
+        raising = false
+        raiseTimeout?.cancel()
+        raiseTimeout = null
     }
 
     private fun cover(on: Boolean) {
-        if (on) {
-            if (snapshotPending) {
-                snapshotPending = false
-                snapshot()
-            }
-            if (curl.currentIndex != fromIndex) curl.setCurrentIndex(fromIndex)
+        if (!on) {
+            curl.alpha = 0f
+        } else if (!instant) {
+            curl.alpha = 1f
         }
-        curl.alpha = if (on) 1f else 0f
     }
 
-    /** The cover is up: move the curl. */
+    /** The cover is up and, after a jump-first, Readium has painted the target: move the curl. */
     private fun play() {
-        val to = fromIndex + if (forward) 1 else -1
-        // Never curl a page that has no picture (a blank page is the black-screen risk): end the turn instead.
-        if (pictures[Side.entries[fromIndex]] == null || pictures[Side.entries[to]] == null) return session.abort()
+        if (jumpFirst) {
+            // The target is now Readium's current page; the cover keeps showing the old one at index 1.
+            pictures.refresh()
+            val copy = pictures[Side.CURRENT]?.copy(Bitmap.Config.ARGB_8888, false) ?: return session.abort()
+            copies[target()] = copy
+            curl.setPage(target(), copy)
+        }
         curlRunning = true
         when {
             auto -> {
                 curl.autoTurn(forward, speedMs)
+                watch(true)
             }
 
             released && releaseCompletes -> {
                 curl.autoTurn(forward, curl.releaseDurationMs)
+                watch(true)
             }
 
             released -> {
@@ -330,10 +440,9 @@ class TurnOverlay(
         fingerDown = true
         sendToCurl(MotionEvent.ACTION_MOVE, lastX, lastY)
         if (curl.curlState == CurlTextureView.CURL_NONE) {
-            // No GL surface yet, or nothing to curl: the curl will never report, so end the turn.
-            sendToCurl(MotionEvent.ACTION_CANCEL, lastX, lastY)
-            fingerDown = false
+            // No GL surface, or nothing to curl: the curl will never report, so end the turn.
             curlRunning = false
+            sendToCurl(MotionEvent.ACTION_CANCEL, lastX, lastY)
             touch = Touch.SWALLOW
             session.abort()
             return
@@ -346,10 +455,44 @@ class TurnOverlay(
         x: Float,
         y: Float,
     ) {
-        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) fingerDown = false
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            fingerDown = false
+            if (curlRunning) watch(passedMiddle(x))
+        }
         val event = MotionEvent.obtain(curlDownTime, SystemClock.uptimeMillis(), action, x, y, 0)
         curl.dispatchTouchEvent(event)
         event.recycle()
+    }
+
+    /** From the curl's end or release: if turnListener never comes (no GL frame), finish the curl anyway. */
+    private fun watch(completes: Boolean) {
+        expected = completes
+        watchdog?.cancel()
+        watchdog =
+            scope.launch {
+                delay(speedMs + WATCHDOG_SLACK_MS)
+                Log.w(TAG, "curl never reported its end; treating it as finished")
+                val completed = expected
+                resetCurl()
+                session.curlFinished(completed)
+            }
+    }
+
+    /** Drops the curl at once: no animation left, back on the current page, nothing in flight. */
+    private fun resetCurl() {
+        flick?.let {
+            it.removeAllListeners()
+            it.cancel()
+        }
+        flick = null
+        watchdog?.cancel()
+        watchdog = null
+        if (curlRunning || fingerDown) {
+            curl.reset(Side.CURRENT.ordinal)
+            if (touch == Touch.DRAG) touch = Touch.SWALLOW // the rest of this gesture goes nowhere
+        }
+        curlRunning = false
+        fingerDown = false
     }
 
     /** Redraws the pictures and hands the curl fresh copies; old copies are dropped, never recycled (the GL thread may hold them). */
@@ -363,12 +506,15 @@ class TurnOverlay(
         idle()
     }
 
-    /** Puts the idle curl on the current page, so the cover shows it from the first frame. */
+    /** Puts the idle curl on the current page, so the next cover starts there. */
     private fun idle() {
         if (!turning && curl.currentIndex != Side.CURRENT.ordinal) curl.setCurrentIndex(Side.CURRENT.ordinal)
     }
 
     private companion object {
+        const val TAG = "TurnOverlay"
         const val FLICK_MS = 200
+        const val FRAME_WAIT_MS = 100L // about two frames, plus a texture upload
+        const val WATCHDOG_SLACK_MS = 1000L
     }
 }

@@ -86,23 +86,23 @@ class PagePicturesTest {
         assertTrue(pictures.generation > refreshed)
     }
 
-    /** A chapter two pages wide whose every page paints a dark mark on white. */
-    private class TwoPageWebView(
-        context: Context,
-    ) : WebView(context) {
-        override fun computeHorizontalScrollRange() = 2 * width
-
-        override fun draw(canvas: Canvas) {
-            canvas.drawColor(Color.WHITE)
-            val paint = Paint().apply { color = Color.BLACK }
-            for (page in 0 until 2) canvas.drawRect(page * width + 10f, 10f, page * width + 60f, 60f, paint)
-        }
-    }
-
     private fun exactly(size: Int) = View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.EXACTLY)
 
     private companion object {
         const val WIDTH = 320
         const val HEIGHT = 480
+    }
+}
+
+/** A chapter two pages wide whose every page paints a dark mark on white. */
+internal class TwoPageWebView(
+    context: Context,
+) : WebView(context) {
+    override fun computeHorizontalScrollRange() = 2 * width
+
+    override fun draw(canvas: Canvas) {
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint().apply { color = Color.BLACK }
+        for (page in 0 until 2) canvas.drawRect(page * width + 10f, 10f, page * width + 60f, 60f, paint)
     }
 }

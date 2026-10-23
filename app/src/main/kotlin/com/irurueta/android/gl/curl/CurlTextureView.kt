@@ -182,6 +182,12 @@ class CurlTextureView @JvmOverloads constructor(
     private var autoTurning = false
 
     /**
+     * grimmdroid: bumped by [reset]; a [turnListener] report posted before it is dropped.
+     */
+    @Volatile
+    private var turnGeneration = 0
+
+    /**
      * Observer for renderer.
      * Tells the renderer the position where curl must be located and
      * which pages to use to pick proper textures for rendering.
@@ -200,7 +206,7 @@ class CurlTextureView @JvmOverloads constructor(
                 // grimmdroid: the settled frame of a finished curl has been drawn: report it, once.
                 finishedTurn?.let { completed ->
                     finishedTurn = null
-                    post { turnListener?.invoke(completed) }
+                    reportTurn(completed)
                 }
                 // notify page position changed
                 if (!notifySmoothChange) {
@@ -661,6 +667,38 @@ class CurlTextureView @JvmOverloads constructor(
     }
 
     /**
+     * grimmdroid: drops any curl at once (finger, [autoTurn] or finishing animation), without a
+     * [turnListener] call, also none already posted, and shows page [index] flat. UI thread; the
+     * page change itself runs on the GL thread before its next frame. A new curl may start
+     * straight after.
+     */
+    fun reset(index: Int) {
+        turnGeneration++ // reports already posted from the UI thread
+        curlAnimator?.let {
+            it.removeAllListeners()
+            it.removeAllUpdateListeners()
+            it.cancel()
+        }
+        curlAnimator = null
+        autoTurning = false
+        // On the GL thread, between frames: animate, curlState and the meshes are its state.
+        queueEvent {
+            turnGeneration++ // reports posted by frames drawn before this point
+            animate = false
+            finishedTurn = null
+            targetIndex = null
+            curlState = CURL_NONE
+            setCurrentIndex(index)
+        }
+    }
+
+    /** grimmdroid: posts a [turnListener] report that [reset] can still cancel. */
+    private fun reportTurn(completed: Boolean) {
+        val generation = turnGeneration
+        post { if (generation == turnGeneration) turnListener?.invoke(completed) }
+    }
+
+    /**
      * grimmdroid: a turn that plays by itself, without synthetic touch events: a pretend finger
      * moves over [durationMs], accelerate-decelerate: x forward from 97 % to -100 % of the width,
      * backward from -90 % to 100 %; y arcs from its start (forward 88 %, backward 72 % of the
@@ -679,7 +717,7 @@ class CurlTextureView @JvmOverloads constructor(
         val curlRenderer = this.curlRenderer
         val rect = curlRenderer?.getPageRect(CurlRenderer.PAGE_RIGHT)
         if (curlRenderer == null || rect == null) {
-            post { turnListener?.invoke(false) }
+            reportTurn(false)
             return
         }
         val w = width.toFloat()
@@ -692,7 +730,7 @@ class CurlTextureView @JvmOverloads constructor(
 
         updateFirstCurlPos(x0, y0)
         if (curlState != (if (forward) CURL_RIGHT else CURL_LEFT)) {
-            post { turnListener?.invoke(false) }
+            reportTurn(false)
             return
         }
 
