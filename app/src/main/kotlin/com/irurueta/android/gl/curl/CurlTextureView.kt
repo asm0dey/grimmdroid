@@ -282,9 +282,8 @@ class CurlTextureView @JvmOverloads constructor(
                 requestRender()
             } else {
                 pointerPos.pos.set(animationSource)
-                var t =
-                    1.0f - (currentTime - animationStartTime).toFloat() / finishDurationMs.toFloat() // grimmdroid
-                t = 1.0f - (t * t * t * (3.0f - 2.0f * t))
+                // grimmdroid: upstream unit bug fixed: it divided nanoseconds by milliseconds.
+                val t = CurlGeometry.finishProgress(currentTime - animationStartTime, finishDurationMs)
                 pointerPos.pos.x += (animationTarget.x - animationSource.x) * t
                 pointerPos.pos.y += (animationTarget.y - animationSource.y) * t
                 updateCurlPos(pointerPos)

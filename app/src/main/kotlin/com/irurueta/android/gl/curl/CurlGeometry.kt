@@ -35,6 +35,16 @@ internal object CurlGeometry {
 
     data class Release(val completed: Boolean, val targetX: Float)
 
+    /**
+     * Eased fraction (0..1) of the finishing animation after [elapsedNanos], smoothstep from 0 to 1
+     * over [durationMs]. No duration means already finished.
+     */
+    fun finishProgress(elapsedNanos: Long, durationMs: Int): Float {
+        if (durationMs <= 0) return 1f
+        val p = (elapsedNanos.toDouble() / (durationMs * 1_000_000.0)).coerceIn(0.0, 1.0).toFloat()
+        return p * p * (3f - 2f * p)
+    }
+
     fun fold(pointerX: Float, pointerY: Float, anchorX: Float, anchorY: Float, radius: Double, pageLeft: Float): Fold {
         val dirX = pointerX - anchorX
         val dirY = pointerY - anchorY

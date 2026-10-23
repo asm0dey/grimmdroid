@@ -68,4 +68,21 @@ class CurlGeometrySpec :
             val target = CurlGeometry.release(-0.5f, true, left, right).targetX
             CurlGeometry.fold(target, 0.2f, 1f, 0.2f, 0.3, left).x shouldBe (left plusOrMinus 1e-3f)
         }
+        test("finishProgress starts at 0 and ends at 1") {
+            CurlGeometry.finishProgress(0, 150) shouldBe 0f
+            CurlGeometry.finishProgress(150_000_000, 150) shouldBe 1f
+        }
+        test("finishProgress is halfway at half the duration") {
+            CurlGeometry.finishProgress(75_000_000, 150) shouldBe (0.5f plusOrMinus 1e-4f)
+        }
+        test("finishProgress is monotonic") {
+            val values = (0..10).map { CurlGeometry.finishProgress(it * 15_000_000L, 150) }
+            values.zipWithNext().forEach { (a, b) -> (b >= a) shouldBe true }
+        }
+        test("finishProgress with no duration is complete") {
+            CurlGeometry.finishProgress(5, 0) shouldBe 1f
+        }
+        test("finishProgress clamps past the end") {
+            CurlGeometry.finishProgress(300_000_000, 150) shouldBe 1f
+        }
     })
