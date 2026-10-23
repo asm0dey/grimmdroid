@@ -20,12 +20,13 @@ import android.animation.Animator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.PointF
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.AccelerateInterpolator
-import android.view.animation.LinearInterpolator
 import com.irurueta.android.glutils.GLTextureView
 import kotlin.math.max
 import kotlin.math.min
@@ -160,23 +161,13 @@ class CurlTextureView @JvmOverloads constructor(
      */
     private var curlAnimator: ValueAnimator? = null
 
-    /**
-     * Contains current horizontal coordinate of scroll touch event.
-     * This is used for animation purposes when scroll starts.
-     */
-    private var scrollX: Float = 0.0f
+    // grimmdroid: scrollX/scrollY/scrollP fed the removed catch-up animation.
 
     /**
-     * Contains current vertical coordinate of scroll touch event.
-     * This is used for animation purposes when scroll starts.
+     * grimmdroid: result of the curl that just finished, set on the GL thread when its last
+     * animation frame swaps the meshes, and reported once the next frame has been drawn.
      */
-    private var scrollY: Float = 0.0f
-
-    /**
-     * Contains current pressure of scroll touch event.
-     * This is used for animation purposes when scroll starts.
-     */
-    private var scrollP: Float = 0.0f
+    private var finishedTurn: Boolean? = null
 
     /**
      * Observer for renderer.
@@ -194,6 +185,11 @@ class CurlTextureView @JvmOverloads constructor(
 
             // We are not animating
             if (!animate) {
+                // grimmdroid: the settled frame of a finished curl has been drawn: report it, once.
+                finishedTurn?.let { completed ->
+                    finishedTurn = null
+                    post { turnListener?.invoke(completed) }
+                }
                 // notify page position changed
                 if (!notifySmoothChange) {
                     notifySmoothChange = true
@@ -211,8 +207,14 @@ class CurlTextureView @JvmOverloads constructor(
             val targetIndex = this@CurlTextureView.targetIndex
 
             val currentTime = System.nanoTime()
-            if (currentTime >= animationStartTime + millisToNanos(animationDurationTime)) {
+            if (currentTime >= animationStartTime + millisToNanos(releaseDurationMs)) {
                 // If animation is done
+                // grimmdroid: a turn completes when the curled page ends on the other side.
+                finishedTurn = (animationTargetEvent == SET_CURL_TO_LEFT && curlState == CURL_RIGHT)
+                    || (animationTargetEvent == SET_CURL_TO_RIGHT && curlState == CURL_LEFT)
+                // grimmdroid: no frame of the un-curled current page is drawn before this swap: the
+                // swap runs before this frame's meshes are drawn, so a completed backward curl's
+                // last frame already shows the previous page flat as the right page.
                 if (animationTargetEvent == SET_CURL_TO_RIGHT) {
                     // Switch curled page to right.
                     val right = pageCurl ?: return
@@ -263,7 +265,7 @@ class CurlTextureView @JvmOverloads constructor(
             } else {
                 pointerPos.pos.set(animationSource)
                 var t =
-                    1.0f - (currentTime - animationStartTime).toFloat() / animationDurationTime.toFloat()
+                    1.0f - (currentTime - animationStartTime).toFloat() / releaseDurationMs.toFloat() // grimmdroid
                 t = 1.0f - (t * t * t * (3.0f - 2.0f * t))
                 pointerPos.pos.x += (animationTarget.x - animationSource.x) * t
                 pointerPos.pos.y += (animationTarget.y - animationSource.y) * t
@@ -308,9 +310,10 @@ class CurlTextureView @JvmOverloads constructor(
     var allowLastPageCurl: Boolean = ALLOW_LAST_PAGE_CURL
 
     /**
-     * Curl animation duration expressed in milliseconds.
+     * grimmdroid: duration of the finishing animation after a finger release, expressed in
+     * milliseconds (was animationDurationTime, which also drove the removed catch-up animation).
      */
-    var animationDurationTime: Int = ANIMATION_DURATION_MILLIS
+    var releaseDurationMs: Int = RELEASE_DURATION_MILLIS
         set(value) {
             require(value >= 0)
             field = value
@@ -375,6 +378,13 @@ class CurlTextureView @JvmOverloads constructor(
      * Handles events when currently visible page changes.
      */
     var currentIndexChangedListener: CurrentIndexChangedListener? = null
+
+    /**
+     * grimmdroid: called once per curl, on the UI thread, after the finishing animation's last
+     * frame is drawn: `true` if the page turned, `false` if it snapped back. Unlike
+     * [currentIndexChangedListener] it does not fire for [setCurrentIndex] or other settles.
+     */
+    var turnListener: ((completed: Boolean) -> Unit)? = null
 
     /**
      * Gets or sets view mode.
@@ -608,6 +618,79 @@ class CurlTextureView @JvmOverloads constructor(
     }
 
     /**
+     * grimmdroid: replaces the texture of page [index] on whichever mesh shows it, without
+     * interrupting a curl, and uploads only that texture on the next frame. A page not shown
+     * now is left alone: [pageProvider] is asked for it when it comes into view.
+     *
+     * The view keeps a reference to [bitmap] and never recycles it: the caller owns it and must
+     * not recycle it while it may still be shown. Drawing new content into the same bitmap and
+     * calling this again re-uploads it (the change is detected by [Bitmap.getGenerationId]).
+     */
+    fun setPage(index: Int, bitmap: Bitmap) {
+        for (mesh in listOfNotNull(pageLeft, pageRight, pageCurl)) {
+            synchronized(mesh) {
+                val page = mesh.texturePage
+                if (page.index == index) {
+                    page.setTexture(bitmap, if (page.hasBackTexture) CurlPage.SIDE_FRONT else CurlPage.SIDE_BOTH)
+                }
+            }
+        }
+        requestRender()
+    }
+
+    /**
+     * grimmdroid: a turn that plays by itself, without synthetic touch events: a pretend finger
+     * moves from near the bottom corner (forward: 97 % width / 88 % height to -90 % / 72 %;
+     * backward mirrored) over [durationMs], accelerate-decelerate, then is released, which
+     * completes the turn and reports it to [turnListener]. If there is no page to turn,
+     * [turnListener] gets `false` straight away.
+     */
+    fun autoTurn(forward: Boolean, durationMs: Int) {
+        cancelCurlAnimator()
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val x0 = if (forward) w * 0.97f else w * 0.03f
+        val x1 = if (forward) -w * 0.9f else w * 1.9f
+        val y0 = h * 0.88f
+        val y1 = h * 0.72f
+
+        updateFirstCurlPos(x0, y0)
+        if (curlState != (if (forward) CURL_RIGHT else CURL_LEFT)) {
+            post { turnListener?.invoke(false) }
+            return
+        }
+
+        val curlAnimator = ValueAnimator.ofFloat(0.0f, 1.0f)
+        this.curlAnimator = curlAnimator
+        curlAnimator.addUpdateListener { animator ->
+            val v = animator.animatedValue as Float
+            updateCurlPos(x0 + (x1 - x0) * v, y0 + (y1 - y0) * v)
+        }
+        curlAnimator.duration = durationMs.toLong()
+        curlAnimator.interpolator = AccelerateDecelerateInterpolator()
+        curlAnimator.addListener(object : Animator.AnimatorListener {
+            private var cancelled = false
+
+            override fun onAnimationEnd(animation: Animator) {
+                if (!cancelled) updateLastCurlPos(x1, y1, 0.0f, null)
+            }
+
+            override fun onAnimationCancel(animation: Animator) {
+                cancelled = true
+            }
+
+            override fun onAnimationRepeat(animation: Animator) {
+                // not used
+            }
+
+            override fun onAnimationStart(animation: Animator) {
+                // not used
+            }
+        })
+        curlAnimator.start()
+    }
+
+    /**
      * Sets actual screen pixel margins.
      *
      * @param left left margin expressed in pixels.
@@ -713,10 +796,16 @@ class CurlTextureView @JvmOverloads constructor(
 
             // Given the explanation, here we decide whether to simulate
             // drag to left or right end.
-            if ((viewMode == SHOW_ONE_PAGE && pointerPos.pos.x > (rightRect.left + rightRect.right) / 2.0f)
-                || viewMode == SHOW_TWO_PAGES
-                && pointerPos.pos.x > rightRect.left
-            ) {
+            if (viewMode == SHOW_ONE_PAGE) {
+                // grimmdroid: with the fold halfway to the finger, "fold on the left edge" is a page
+                // width further left than the library's target (CurlGeometry.release).
+                val release = CurlGeometry.release(
+                    pointerPos.pos.x, curlState == CURL_RIGHT, rightRect.left, rightRect.right
+                )
+                animationTarget.set(dragStartPos)
+                animationTarget.x = release.targetX
+                animationTargetEvent = if (release.targetX == rightRect.right) SET_CURL_TO_RIGHT else SET_CURL_TO_LEFT
+            } else if (pointerPos.pos.x > rightRect.left) {
                 // On right side target is always right page's right border.
                 animationTarget.set(dragStartPos)
                 animationTarget.x = rightRect.right
@@ -739,65 +828,20 @@ class CurlTextureView @JvmOverloads constructor(
 
     /**
      * Called the first time a scroll event is detected by the touch gesture detector.
-     * This method starts an animation from page edge that catches current touch
-     * position in a smooth way, so that page appears to curl smoothly from its edge
-     * instead of abruptly appearing curled on first touch.
+     * grimmdroid: no catch-up animation from the page edge (it fought the finger moves and
+     * jittered): the curl starts at the down event and is put at the finger straight away.
      *
      * @param e1 on down touch event that started the scroll or fling gesture.
+     * @param e2 current move event.
      */
-    private fun handleFirstScrollEvent(e1: MotionEvent) {
-        val curlRenderer = this.curlRenderer ?: return
-        val rightRect = curlRenderer.getPageRect(CurlRenderer.PAGE_RIGHT) ?: return
-        val leftRect = curlRenderer.getPageRect(CurlRenderer.PAGE_LEFT) ?: return
-
+    private fun handleFirstScrollEvent(e1: MotionEvent, e2: MotionEvent) {
         cancelCurlAnimator()
 
         // setup start of curl at position where on down touch event occurred
         updateFirstCurlPos(e1.x, e1.y, e1.pressure)
-
-        // prepare an animation going from page edge to current touch position
-        // notice that animator will take values scrollX, scrollY and scollP that
-        // will be updated on subsequent scroll events so that this animation can
-        // catch current touch position in a smooth way.
-
-        // get corresponding page edge
-        val startX = curlRenderer.inverseTranslateX(
-            if (curlState == CURL_RIGHT) {
-                rightRect.right
-            } else {
-
-                if (viewMode == SHOW_ONE_PAGE) {
-                    rightRect.left
-                } else {
-                    leftRect.left
-                }
-            }
-        )
-
-        // use initial vertical coordinate and pressure of touch event
-        val startY = e1.y
-        val startPressure = e1.pressure
-        scrollX = startX
-        scrollY = startY
-        scrollP = startPressure
-
-        val curlAnimator = ValueAnimator.ofFloat(0.0f, 1.0f)
-        this.curlAnimator = curlAnimator
-
-        curlAnimator.setTarget(this)
-        curlAnimator.addUpdateListener { animator ->
-            val v = animator.animatedValue as Float
-
-            val x = startX * (1.0f - v) + v * scrollX
-            val y = startY * (1.0f - v) + v * scrollY
-            val pressure = startPressure * (1.0f - v) + v * scrollP
-
-            updateCurlPos(x, y, pressure)
+        if (curlState != CURL_NONE) {
+            updateCurlPos(e2.x, e2.y, e2.pressure)
         }
-        curlAnimator.duration = animationDurationTime.toLong()
-        curlAnimator.interpolator = LinearInterpolator()
-
-        curlAnimator.start()
     }
 
     /**
@@ -895,10 +939,7 @@ class CurlTextureView @JvmOverloads constructor(
      * @param event a touch event.
      */
     private fun handleScrollEvent(event: MotionEvent) {
-        scrollX = event.x
-        scrollY = event.y
-        scrollP = event.pressure
-        updateCurlPos(event.x, event.y, event.pressure)
+        updateCurlPos(event.x, event.y, event.pressure) // grimmdroid: no catch-up state to feed
     }
 
     /**
@@ -1046,7 +1087,7 @@ class CurlTextureView @JvmOverloads constructor(
                     private fun handleScroll(e1: MotionEvent?, e2: MotionEvent): Boolean {
                         if (!scrolling && e1 != null) {
                             // this is the first scroll event
-                            handleFirstScrollEvent(e1)
+                            handleFirstScrollEvent(e1, e2) // grimmdroid
                             scrolling = true
                         } else {
                             handleScrollEvent(e2)
@@ -1385,11 +1426,21 @@ class CurlTextureView @JvmOverloads constructor(
         // we had to this in both of the next if-else branches.
         curlPos.set(pointerPos.pos)
 
+        // grimmdroid: one page, both directions: the fold sits halfway between the drag's anchor and
+        // the finger, so the turning page's edge stays under it (CurlGeometry.fold). Forward the anchor
+        // is the drag start on the right edge; backward it is the page's right edge at the drag start y.
+        if (viewMode == SHOW_ONE_PAGE && (curlState == CURL_RIGHT || curlState == CURL_LEFT)) {
+            val pageRect = curlRenderer?.getPageRect(CurlRenderer.PAGE_RIGHT) ?: return
+            val anchorX = if (curlState == CURL_RIGHT) dragStartPos.x else pageRect.right
+            val fold = CurlGeometry.fold(curlPos.x, curlPos.y, anchorX, dragStartPos.y, radius, pageRect.left)
+            curlPos.set(fold.x, fold.y)
+            curlDir.set(fold.dirX, fold.dirY)
+            radius = fold.radius
+        }
         // If curl happens on right page, or on left page on two page mode,
         // we'll calculate curl position from pointerPos.
-        if (curlState == CURL_RIGHT
-            || (curlState == CURL_LEFT && viewMode == SHOW_TWO_PAGES)
-        ) {
+        // grimmdroid: two pages only; one page is handled above.
+        else if (curlState == CURL_RIGHT || curlState == CURL_LEFT) {
 
             curlDir.x = curlPos.x - dragStartPos.x
             curlDir.y = curlPos.y - dragStartPos.y
@@ -1408,13 +1459,7 @@ class CurlTextureView @JvmOverloads constructor(
             // Actual curl position calculation.
             if (dist >= curlLen) {
                 val translate = (dist - curlLen) / 2.0
-                if (viewMode == SHOW_TWO_PAGES) {
-                    curlPos.x -= (curlDir.x * translate / dist).toFloat()
-                } else {
-                    val pageLeftX =
-                        (curlRenderer?.getPageRect(CurlRenderer.PAGE_RIGHT)?.left) ?: 0.0f
-                    radius = max(min((curlPos.x - pageLeftX).toDouble(), radius), 0.0)
-                }
+                curlPos.x -= (curlDir.x * translate / dist).toFloat() // grimmdroid: two pages only here
                 curlPos.y -= (curlDir.y * translate / dist).toFloat()
             } else {
                 val angle = Math.PI * sqrt(dist / curlLen)
@@ -1423,20 +1468,7 @@ class CurlTextureView @JvmOverloads constructor(
                 curlPos.y += (curlDir.y * translate / dist).toFloat()
             }
         }
-        // Otherwise we'll let curl follow pointer position.
-        else if (curlState == CURL_LEFT) {
-
-            // Adjust radius regarding how close to page edge we are.
-            val pageLeftX =
-                (curlRenderer?.getPageRect(CurlRenderer.PAGE_RIGHT)?.left) ?: 0.0f
-            radius = max(min((curlPos.x - pageLeftX).toDouble(), radius), 0.0)
-
-            val pageRightX =
-                (curlRenderer?.getPageRect(CurlRenderer.PAGE_RIGHT)?.right) ?: 0.0f
-            curlPos.x -= min(pageRightX - curlPos.x, radius.toFloat())
-            curlDir.x = curlPos.x + dragStartPos.x
-            curlDir.y = curlPos.y - dragStartPos.y
-        }
+        // grimmdroid: the library's one-page backward branch (fold at the finger) is replaced above.
 
         setCurlPos(curlPos, curlDir, radius)
     }
@@ -1452,6 +1484,7 @@ class CurlTextureView @JvmOverloads constructor(
     private fun updatePage(page: CurlPage, index: Int, backIndex: Int? = null) {
         // First reset page to initial state.
         page.reset()
+        page.index = index // grimmdroid: lets setPage find the mesh showing a page
         // Ask page provider to fill it up with bitmaps and colors.
         pageProvider?.updatePage(page, pageBitmapWidth, pageBitmapHeight, index, backIndex)
     }
@@ -1566,7 +1599,7 @@ class CurlTextureView @JvmOverloads constructor(
         /**
          * Duration of curl animation expressed in milliseconds.
          */
-        const val ANIMATION_DURATION_MILLIS = 300
+        const val RELEASE_DURATION_MILLIS = 150 // grimmdroid: was ANIMATION_DURATION_MILLIS = 300
 
         /**
          * Duration of curl animation during page jump expressed in milliseconds.

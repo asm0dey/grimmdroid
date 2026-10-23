@@ -31,7 +31,12 @@ class CurlPage {
      * Indicates whether textures have changed since last time they were recycled.
      */
     var texturesChanged: Boolean = false
-        private set
+        internal set // grimmdroid: CurlMesh clears it after uploading, instead of recycling the page
+
+    /**
+     * grimmdroid: index of the page these textures belong to, or -1 if unknown.
+     */
+    var index: Int = -1
 
     /**
      * Indicates whether back side texture exists and if it differs from front facing one.
@@ -96,14 +101,29 @@ class CurlPage {
     }
 
     /**
+     * grimmdroid: with non-power-of-two texture support the bitmap is used as is (pages are
+     * full-screen), skipping the copy; otherwise as [getTexture]. A returned bitmap other than
+     * [getBitmap] for the same side is a copy the caller recycles.
+     */
+    internal fun getTexture(textureRect: RectF, side: Int, npot: Boolean): Bitmap? {
+        if (!npot) return getTexture(textureRect, side)
+        textureRect.set(0.0f, 0.0f, 1.0f, 1.0f)
+        return getBitmap(side)
+    }
+
+    /**
+     * grimmdroid: the bitmap set for a side (not a copy).
+     */
+    internal fun getBitmap(side: Int): Bitmap? = if (side == SIDE_FRONT) textureFront else textureBack
+
+    /**
      * Recycles and frees underlying Bitmaps.
+     * grimmdroid: drops them instead: they belong to the caller, who may still show them.
      */
     fun recycle() {
-        textureFront?.recycle()
         textureFront = createBitmap(1, 1, Bitmap.Config.RGB_565)
         textureFront?.eraseColor(colorFront)
 
-        textureBack?.recycle()
         textureBack = createBitmap(1, 1, Bitmap.Config.RGB_565)
         textureBack?.eraseColor(colorBack)
         texturesChanged = false
@@ -138,6 +158,7 @@ class CurlPage {
 
     /**
      * Sets textures for page sides.
+     * grimmdroid: the previous bitmap is no longer recycled: it belongs to the caller.
      *
      * @param texture texture to be set.
      * @param side side where texture is applied.
@@ -155,16 +176,12 @@ class CurlPage {
         }
         when (side) {
             SIDE_FRONT -> {
-                textureFront?.recycle()
                 textureFront = texture2
             }
             SIDE_BACK -> {
-                textureBack?.recycle()
                 textureBack = texture2
             }
             SIDE_BOTH -> {
-                textureFront?.recycle()
-                textureBack?.recycle()
                 textureFront = texture2
                 textureBack = texture2
             }

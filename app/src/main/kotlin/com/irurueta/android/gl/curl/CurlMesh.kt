@@ -16,6 +16,7 @@
 
 package com.irurueta.android.gl.curl
 
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.RectF
@@ -173,6 +174,17 @@ class CurlMesh private constructor(
      * Texture identifiers.
      */
     private var textureIds: IntArray? = null
+
+    // grimmdroid: what each texture id holds, so an unchanged bitmap is not uploaded again.
+    private var uploadedFront: Bitmap? = null
+    private var uploadedFrontGeneration = 0
+    private var uploadedBack: Bitmap? = null
+    private var uploadedBackGeneration = 0
+
+    /**
+     * grimmdroid: whether the GL context takes non-power-of-two textures, read with the textures.
+     */
+    private var npot = false
 
     /**
      * Texture rectangle for back side.
@@ -741,6 +753,7 @@ class CurlMesh private constructor(
             this.textureIds = textureIds
 
             gl.glGenTextures(2, textureIds, 0)
+            npot = supportsNpot(gl) // grimmdroid
             for (textureId in textureIds) {
                 // Set texture attributes.
                 gl.glBindTexture(GL10.GL_TEXTURE_2D, textureId)
@@ -768,26 +781,41 @@ class CurlMesh private constructor(
         }
 
         if (drawTexture && texturePage.texturesChanged && textureIds != null) {
-            gl.glBindTexture(GL10.GL_TEXTURE_2D, textureIds[0])
-            var texture = texturePage.getTexture(textureRectFront, CurlPage.SIDE_FRONT)
-            GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, texture, 0)
-            texture?.recycle()
+            // grimmdroid: upload only a side whose bitmap changed since it was last uploaded, and
+            // keep the page's bitmaps (the caller's) instead of recycling them. The mesh is reset
+            // (which flattens a curl) only when the texture coordinates change.
+            val oldFront = RectF(textureRectFront)
+            val oldBack = RectF(textureRectBack)
+            val front = texturePage.getBitmap(CurlPage.SIDE_FRONT)
+            if (front == null || front !== uploadedFront || front.generationId != uploadedFrontGeneration) {
+                gl.glBindTexture(GL10.GL_TEXTURE_2D, textureIds[0])
+                val texture = texturePage.getTexture(textureRectFront, CurlPage.SIDE_FRONT, npot)
+                GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, texture, 0)
+                if (texture !== front) texture?.recycle()
+                uploadedFront = front
+                uploadedFrontGeneration = front?.generationId ?: 0
+            }
 
             textureBack = texturePage.hasBackTexture
             if (textureBack) {
-                gl.glBindTexture(GL10.GL_TEXTURE_2D, textureIds[1])
-                texture = texturePage.getTexture(
-                    textureRectBack,
-                    CurlPage.SIDE_BACK
-                )
-                GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, texture, 0)
-                texture?.recycle()
+                val back = texturePage.getBitmap(CurlPage.SIDE_BACK)
+                if (back == null || back !== uploadedBack || back.generationId != uploadedBackGeneration) {
+                    gl.glBindTexture(GL10.GL_TEXTURE_2D, textureIds[1])
+                    val texture = texturePage.getTexture(textureRectBack, CurlPage.SIDE_BACK, npot)
+                    GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, texture, 0)
+                    if (texture !== back) texture?.recycle()
+                    uploadedBack = back
+                    uploadedBackGeneration = back?.generationId ?: 0
+                }
             } else {
                 textureRectBack.set(textureRectFront)
+                uploadedBack = null
             }
 
-            texturePage.recycle()
-            reset()
+            texturePage.texturesChanged = false
+            if (oldFront != textureRectFront || oldBack != textureRectBack) {
+                reset()
+            }
         }
 
         // Some 'global' settings
@@ -955,6 +983,8 @@ class CurlMesh private constructor(
     @Synchronized
     fun resetTexture() {
         textureIds = null
+        uploadedFront = null // grimmdroid: the new context holds nothing yet
+        uploadedBack = null
     }
 
     /**
@@ -1078,6 +1108,17 @@ class CurlMesh private constructor(
     }
 
     companion object {
+        /**
+         * grimmdroid: non-power-of-two textures are usable when the context has the extension or
+         * is ES 2+ underneath (e.g. ANGLE), with this mesh's no-mipmap, clamp-to-edge textures.
+         */
+        private fun supportsNpot(gl: GL10): Boolean {
+            if (gl.glGetString(GL10.GL_EXTENSIONS)?.contains("GL_OES_texture_npot") == true) return true
+            val major = gl.glGetString(GL10.GL_VERSION)?.let { Regex("OpenGL ES (\\d+)").find(it) }
+                ?.groupValues?.get(1)?.toIntOrNull() ?: return false
+            return major >= 2
+        }
+
         /**
          * Flag for rendering some lines used for development.
          * Shows curl position and one for the direction from the given position.
