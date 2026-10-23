@@ -24,9 +24,11 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.ActionMode
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
+import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -64,19 +66,27 @@ import androidx.lifecycle.withStarted
 import io.github.asm0dey.grimmdroid.GrimmdroidApp
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.catalog.DownloadState
+import io.github.asm0dey.grimmdroid.reader.curl.TurnOverlay
+import io.github.asm0dey.grimmdroid.reader.curl.TurnResult
+import io.github.asm0dey.grimmdroid.reader.curl.visibleWebView
 import io.github.asm0dey.grimmdroid.settings.PageTurn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.readium.r2.navigator.HyperlinkNavigator
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.navigator.input.InputListener
+import org.readium.r2.navigator.input.Key
 import org.readium.r2.navigator.input.TapEvent
-import org.readium.r2.navigator.util.DirectionalNavigationAdapter
+import org.readium.r2.navigator.preferences.ReadingProgression
 import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
@@ -85,7 +95,9 @@ import org.readium.r2.shared.publication.services.locateProgression
 import org.readium.r2.shared.publication.services.positionsByReadingOrder
 import org.readium.r2.shared.util.AbsoluteUrl
 import java.io.File
+import kotlin.coroutines.resume
 import kotlin.math.roundToInt
+import org.readium.r2.navigator.input.KeyEvent as InputKeyEvent
 
 class ReaderActivity : FragmentActivity() {
     private val vm: ReaderViewModel by viewModels {
@@ -130,8 +142,8 @@ class ReaderActivity : FragmentActivity() {
 
     private val appSettings get() = (application as GrimmdroidApp).container.settings
 
-    // The app setting; the edge-tap adapter takes it when the navigator is bound.
-    private var animatePageTurns = false
+    // The app setting, read on every turn.
+    private var pageTurn = PageTurn.NONE
     private val accountId get() = intent.getLongExtra(EXTRA_ACCOUNT_ID, -1)
 
     // The custom fonts on the phone, and those the latest navigator factory declared (null before the first one).
@@ -151,6 +163,18 @@ class ReaderActivity : FragmentActivity() {
     private var settingsOpen by mutableStateOf(false)
     private var footnote by mutableStateOf<String?>(null)
     private lateinit var navigatorContainer: FragmentContainerView
+    private lateinit var curl: TurnOverlay
+
+    // Columns on screen, from the page's CSS; 0 until a page reports it (the curl stays off until then).
+    private var columns = 0
+    private var selecting = false // a text selection's action mode is up
+    private var repicturing: Job? = null
+
+    // The bookmark span Readium reported mid-turn, shown once the turn settles.
+    private var pendingPage: PageSpan? = null
+
+    // The locator the settle handled; its late delivery to the collector is not a second visit.
+    private var handledOnSettle: Locator? = null
 
     private val systemDark get() =
         resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
@@ -197,8 +221,12 @@ class ReaderActivity : FragmentActivity() {
                 locator: Locator,
             ) {
                 navigatorReady = true
-                if (!scrolled) page = PageSpan.of(locator, 1.0 / totalPages.coerceAtLeast(1))
+                if (scrolled) return
+                val span = PageSpan.of(locator, 1.0 / totalPages.coerceAtLeast(1))
+                if (curl.turning) pendingPage = span else page = span
             }
+
+            override fun onPageLoaded() = repicture() // a chapter, or its neighbour, can now be drawn
         }
     private var publication by mutableStateOf<Publication?>(null)
 
@@ -218,7 +246,11 @@ class ReaderActivity : FragmentActivity() {
         if (open != null) {
             // Only after the book opened once in this process, so the DataStore already holds the settings in memory.
             settings = runBlocking { settingsStore.settings.first() }
-            animatePageTurns = runBlocking { appSettings.pageTurn.first() == PageTurn.SLIDE }
+            pageTurn =
+                runBlocking {
+                    appSettings.migratePageTurn() // may still be running from GrimmdroidApp on the first launch after an upgrade
+                    appSettings.pageTurn.first()
+                }
         }
         fonts = fontStore.list(accountId) // a few file names, declared by the navigator created next
         supportFragmentManager.fragmentFactory =
@@ -261,9 +293,20 @@ class ReaderActivity : FragmentActivity() {
             v.updatePadding(top = top.coerceAtLeast(0), bottom = bottom)
             insets
         }
+        curl =
+            TurnOverlay(
+                this,
+                navigatorContainer,
+                lifecycleScope,
+                jump = ::jump,
+                awaitPainted = ::awaitPainted,
+                onSettled = { onTurnSettled() },
+                curlActive = ::curlActive,
+                selecting = { selecting },
+            )
         setContentView(
             FrameLayout(this).apply {
-                addView(navigatorContainer)
+                addView(curl) // the navigator inside, under the Compose chrome
                 addView(ComposeView(context).apply { setContent { Chrome() } })
             },
         )
@@ -274,7 +317,14 @@ class ReaderActivity : FragmentActivity() {
                 applySettings()
             }
         }
-        lifecycleScope.launch { appSettings.pageTurn.collect { animatePageTurns = it == PageTurn.SLIDE } }
+        lifecycleScope.launch {
+            appSettings.migratePageTurn()
+            appSettings.pageTurn.collect {
+                pageTurn = it
+                repicture()
+            }
+        }
+        lifecycleScope.launch { appSettings.turnSpeedMs.collect { curl.speedMs = it } }
         lifecycleScope.launch {
             val madeCurrent = getString(R.string.position_made_current)
             vm.madeCurrent.collect { Toast.makeText(this@ReaderActivity, madeCurrent, Toast.LENGTH_SHORT).show() }
@@ -317,6 +367,7 @@ class ReaderActivity : FragmentActivity() {
         .also {
             declaredFonts = fonts
             navigatorReady = false
+            columns = 0
         }.createFragmentFactory(
             initialLocator = initial,
             initialPreferences = settings.toEpubPreferences(systemDark),
@@ -346,9 +397,34 @@ class ReaderActivity : FragmentActivity() {
     private val navigator get() = supportFragmentManager.findFragmentById(R.id.reader_navigator) as? EpubNavigatorFragment
 
     private fun bind(navigator: EpubNavigatorFragment) {
-        // Edge taps turn pages; the middle third toggles the chrome.
+        // Edge thirds turn pages (as Readium's DirectionalNavigationAdapter did, but through turnPage); the middle third toggles the chrome.
         navigator.addInputListener(
-            DirectionalNavigationAdapter(navigator, horizontalEdgeThresholdPercent = 1.0 / 3, animatedTransition = animatePageTurns),
+            object : InputListener {
+                override fun onTap(event: TapEvent): Boolean {
+                    if (navigator.overflow.value.scroll) return false
+                    val width = navigator.publicationView.width
+                    val right =
+                        when {
+                            event.point.x >= width * 2 / 3f -> true
+                            event.point.x <= width / 3f -> false
+                            else -> return false
+                        }
+                    return navigatorReady && turnPage(navigator, right != rtl(navigator))
+                }
+
+                override fun onKey(event: InputKeyEvent): Boolean {
+                    if (event.type != InputKeyEvent.Type.Down || event.modifiers.isNotEmpty()) return false
+                    val forward =
+                        when (event.key) {
+                            Key.ArrowUp -> false
+                            Key.ArrowDown, Key.Space -> true
+                            Key.ArrowLeft -> rtl(navigator)
+                            Key.ArrowRight -> !rtl(navigator)
+                            else -> return false
+                        }
+                    return navigatorReady && turnPage(navigator, forward)
+                }
+            },
         )
         navigator.addInputListener(
             object : InputListener {
@@ -364,27 +440,129 @@ class ReaderActivity : FragmentActivity() {
             owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     navigator.currentLocator.collect { current ->
-                        locator = current
-                        current.locations.position?.let(vm.pace::onPosition)
-                        vm.onLocatorChanged(current.withSelector(navigator.firstVisibleElementLocator()?.locations?.cssSelector))
-                        // Scrolled, a "page" is the viewport: Readium's progression is scrollY over the content height.
-                        if (scrolled) {
-                            page =
-                                navigator
-                                    .evaluateJavascript("window.innerHeight / document.scrollingElement.scrollHeight")
-                                    ?.toDoubleOrNull()
-                                    ?.let { PageSpan.of(current, it) }
-                        }
+                        // Mid-turn, Readium is already on the target page while the user still sees the old one: onTurnSettled reports it.
+                        if (curl.turning) return@collect
+                        val settled = current == handledOnSettle
+                        handledOnSettle = null
+                        if (settled) return@collect
+                        showLocator(navigator, current)
+                        repicture() // a jump from the table of contents, a bookmark, a search, or a turn without the curl
                     }
                 }
                 launch {
                     vm.navigateTo.collect { target ->
+                        curl.abort()
                         // The view model recorded the target: a new navigator starts there.
                         if (navigatorReady) navigator.go(target) else publication?.let(::restartNavigator)
                     }
                 }
+                launch {
+                    navigator.settings.collect { repicture() } // after Readium's own reaction to new preferences
+                }
             }
         }
+    }
+
+    /** The status line, reading pace, position sync and scrolled page span all follow the locator from here. */
+    private suspend fun showLocator(
+        navigator: EpubNavigatorFragment,
+        current: Locator,
+    ) {
+        locator = current
+        current.locations.position?.let(vm.pace::onPosition)
+        vm.onLocatorChanged(current.withSelector(navigator.firstVisibleElementLocator()?.locations?.cssSelector))
+        // Scrolled, a "page" is the viewport: Readium's progression is scrollY over the content height.
+        if (scrolled) {
+            page =
+                navigator
+                    .evaluateJavascript("window.innerHeight / document.scrollingElement.scrollHeight")
+                    ?.toDoubleOrNull()
+                    ?.let { PageSpan.of(current, it) }
+        }
+    }
+
+    /**
+     * Every turn ends here, turned or not. Cancelling a jump is best effort, so where the reader is comes from
+     * Readium; it counts as a visit only when it isn't the page shown before the turn. The overlay redraws its own
+     * pictures after a settle.
+     */
+    private fun onTurnSettled() {
+        pendingPage?.let { page = it }
+        pendingPage = null
+        val navigator = navigator ?: return
+        val now = navigator.currentLocator.value
+        if (now == locator) return
+        handledOnSettle = now
+        lifecycleScope.launch { showLocator(navigator, now) }
+    }
+
+    private fun rtl(navigator: EpubNavigatorFragment) = navigator.overflow.value.readingProgression == ReadingProgression.RTL
+
+    private fun curlActive(): Boolean {
+        if (!navigatorReady || pageTurn != PageTurn.CURL) return false
+        val s = navigator?.settings?.value ?: return false
+        return curlSupported(s.scroll, s.readingProgression == ReadingProgression.RTL, s.verticalText, columns)
+    }
+
+    /** The curl's jump: an instant turn, done once Readium reports the new place (or 1.5 s passed). False at the book's edge. */
+    private suspend fun jump(forward: Boolean): Boolean {
+        val navigator = navigator ?: return false
+        val before = navigator.currentLocator.value
+        if (!(if (forward) navigator.goForward(false) else navigator.goBackward(false))) return false
+        withTimeoutOrNull(1500) { navigator.currentLocator.first { it != before } }
+        return true
+    }
+
+    /** Returns once the visible WebView has drawn its latest content and a frame has followed. */
+    private suspend fun awaitPainted() {
+        val web = visibleWebView(navigatorContainer) ?: return
+        suspendCancellableCoroutine { done ->
+            web.postVisualStateCallback(
+                0,
+                object : WebView.VisualStateCallback() {
+                    override fun onComplete(requestId: Long) {
+                        if (done.isActive) done.resume(Unit)
+                    }
+                },
+            )
+        }
+        awaitFrame()
+    }
+
+    /**
+     * The page on screen changed without the curl (a jump, a reflow, a new chapter loaded): drops the curl's pictures,
+     * and with the curl on, re-reads the column count and redraws them once the page has painted. Mid-turn the overlay
+     * redraws them itself when the turn settles.
+     */
+    private fun repicture() {
+        if (curl.turning) return
+        curl.invalidatePictures()
+        repicturing?.cancel()
+        if (pageTurn != PageTurn.CURL) return
+        repicturing =
+            lifecycleScope.launch {
+                awaitFrame() // let the navigator lay out and queue its own scripts first
+                val navigator = navigator ?: return@launch
+                columns = if (navigator.evaluateJavascript(COLUMNS_JS)?.trim('"') == "2") 2 else 1
+                if (!curlActive()) return@launch
+                withTimeoutOrNull(1500) { awaitPainted() }
+                curl.refreshPictures()
+            }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        repicture()
+    }
+
+    override fun onActionModeStarted(mode: ActionMode?) {
+        super.onActionModeStarted(mode)
+        selecting = true
+    }
+
+    override fun onActionModeFinished(mode: ActionMode?) {
+        super.onActionModeFinished(mode)
+        selecting = false
     }
 
     private fun inSystemGestureEdge(y: Float): Boolean {
@@ -399,6 +577,7 @@ class ReaderActivity : FragmentActivity() {
         navigatorContainer.setBackgroundColor(settings.palette(systemDark).bg.toArgb())
         ViewCompat.requestApplyInsets(navigatorContainer)
         showSystemBars(chromeVisible)
+        repicture()
     }
 
     private fun updateSettings(f: (ReaderSettings) -> ReaderSettings) {
@@ -541,15 +720,17 @@ class ReaderActivity : FragmentActivity() {
             else -> null
         }
 
+    /** A turn from a key or an edge tap: a curl when it's on and fits the book, else Readium's own. False when nothing turned. */
     private fun turnPage(
         navigator: EpubNavigatorFragment,
         forward: Boolean,
-    ) {
-        fun go() = if (forward) navigator.goForward(animatePageTurns) else navigator.goBackward(animatePageTurns)
-        if (!scrolled) {
-            go()
-            return
-        }
+    ): Boolean {
+        if (curl.turning) return true // a held key, or a tap during a turn, turns once
+        if (curlActive() && curl.turn(forward) != TurnResult.UNSUPPORTED) return true
+        val animated = pageTurn != PageTurn.NONE // Curl falls back to Slide
+
+        fun go() = if (forward) navigator.goForward(animated) else navigator.goBackward(animated)
+        if (!scrolled) return go()
         // Scrolled, goForward jumps a whole chapter: scroll a screen, and change chapter only at its end.
         lifecycleScope.launch {
             val moved =
@@ -558,6 +739,17 @@ class ReaderActivity : FragmentActivity() {
                 )
             if (moved != "true") go()
         }
+        return true
+    }
+
+    override fun onPause() {
+        if (::curl.isInitialized) curl.onPause() // ends a running turn where the reader is
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::curl.isInitialized) curl.onResume()
     }
 
     override fun onStop() {
@@ -572,6 +764,9 @@ class ReaderActivity : FragmentActivity() {
         private const val EXTRA_ACCOUNT_ID = "accountId"
         private const val EXTRA_BOOK_ID = "bookId"
         private const val EXTRA_FILE = "file"
+
+        // Readium CSS sets the column count on the root element; "2" when two columns show.
+        private const val COLUMNS_JS = "getComputedStyle(document.documentElement).columnCount"
 
         // What the picker offers; Fonts.import still checks the file's signature.
         private val FONT_TYPES =
@@ -589,6 +784,14 @@ class ReaderActivity : FragmentActivity() {
                 .putExtra(EXTRA_FILE, file.path)
     }
 }
+
+/** Whether a page curl fits the layout: paginated, left to right, horizontal, one column ([columns] 0 = not known yet). */
+internal fun curlSupported(
+    scroll: Boolean,
+    rtl: Boolean,
+    verticalText: Boolean,
+    columns: Int,
+): Boolean = !scroll && !rtl && !verticalText && columns == 1
 
 private val EXTERNAL_SCHEMES = setOf("http", "https", "mailto")
 

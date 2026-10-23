@@ -68,7 +68,7 @@ class PagePictures(
     fun refresh() {
         invalidate()
         if (container.width <= 0 || container.height <= 0) return
-        val web = webViews(container).firstOrNull { it.getGlobalVisibleRect(Rect()) } ?: return
+        val web = visibleWebView(container) ?: return
         if (web.width <= 0) return
         val page = pageIndex(web.scrollX, web.width)
         val pages = pageCount(web)
@@ -135,16 +135,19 @@ class PagePictures(
         // shortcut: protected View API, reached by reflection; R2WebView's own numPages is internal to Readium.
         val computeHorizontalScrollRange =
             View::class.java.getDeclaredMethod("computeHorizontalScrollRange").apply { isAccessible = true }
-
-        fun descendants(view: View): Sequence<View> =
-            sequence {
-                yield(view)
-                if (view is ViewGroup) view.children.forEach { yieldAll(descendants(it)) }
-            }
-
-        fun webViews(view: View) = descendants(view).filterIsInstance<WebView>()
     }
 }
+
+private fun descendants(view: View): Sequence<View> =
+    sequence {
+        yield(view)
+        if (view is ViewGroup) view.children.forEach { yieldAll(descendants(it)) }
+    }
+
+private fun webViews(view: View) = descendants(view).filterIsInstance<WebView>()
+
+/** The navigator's WebView on screen under [container], or null while none is. */
+internal fun visibleWebView(container: View): WebView? = webViews(container).firstOrNull { it.getGlobalVisibleRect(Rect()) }
 
 /** The page whose scroll offset is nearest [scrollX]. */
 internal fun pageIndex(
