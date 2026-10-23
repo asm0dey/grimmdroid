@@ -661,10 +661,13 @@ class CurlTextureView @JvmOverloads constructor(
 
     /**
      * grimmdroid: a turn that plays by itself, without synthetic touch events: a pretend finger
-     * moves over [durationMs], accelerate-decelerate, forward from 97 % width / 88 % height to
-     * -100 % / 72 %, backward from -90 % / 72 % to 100 % / 88 %. The x ends are the completed
-     * release targets (fold on the left edge, fold on the right edge), so the turn completes at
-     * once where the path ends (no release tail) and is reported to [turnListener] as `true`.
+     * moves over [durationMs], accelerate-decelerate: x forward from 97 % to -100 % of the width,
+     * backward from -90 % to 100 %; y arcs from its start (forward 88 %, backward 72 % of the
+     * height) towards the other value (72 % / 88 %) and back, `y0 + (y1 - y0) * sin(PI * v)`,
+     * so the fold leans mid-turn and lands level. The x ends are the completed release targets
+     * (fold on the left edge, fold on the right edge) and y ends at the drag's anchor, so the last
+     * frame already is the finished state: the turn completes at once where the path ends (no
+     * release tail) and is reported to [turnListener] as `true`.
      * Touches are ignored while the path plays. If the path is cancelled anyway (by another
      * animation of this view) the turn completes at once too, so [turnListener] still fires
      * exactly once with `true`. If there is no page to turn, [turnListener] gets `false` straight
@@ -696,7 +699,7 @@ class CurlTextureView @JvmOverloads constructor(
         this.curlAnimator = curlAnimator
         curlAnimator.addUpdateListener { animator ->
             val v = animator.animatedValue as Float
-            updateCurlPos(x0 + (x1 - x0) * v, y0 + (y1 - y0) * v)
+            updateCurlPos(x0 + (x1 - x0) * v, y0 + (y1 - y0) * sin(Math.PI * v).toFloat())
         }
         curlAnimator.duration = durationMs.toLong()
         curlAnimator.interpolator = AccelerateDecelerateInterpolator()
@@ -704,7 +707,7 @@ class CurlTextureView @JvmOverloads constructor(
             // Also runs after a cancel: the turn completes either way, with no finishing animation.
             override fun onAnimationEnd(animation: Animator) {
                 autoTurning = false
-                updateLastCurlPos(x1, y1, 0.0f, null, 0)
+                updateLastCurlPos(x1, y0, 0.0f, null, 0) // the arc ends back at the start y
             }
 
             override fun onAnimationCancel(animation: Animator) {
