@@ -20,6 +20,7 @@ package io.github.asm0dey.grimmdroid.reader.curl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -34,6 +35,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * timeout, a failing callback and [abort], removes the cover and ends with [busy] == false.
  * [onSettled] fires exactly once for every [start] that returned true, so the caller can
  * always release its locator gating there.
+ *
+ * Cancelling an in-flight navigation is best effort, so the caller should re-read the real
+ * position on every settle.
  *
  * [jump] moves Readium instantly and returns false at the book's edge. [onSettled]`(true)`
  * means the reader is on the new page and the user sees it; `false` means it is on the
@@ -149,9 +153,9 @@ class TurnSession(
                         it()
                     }
                     tryFinish()
-                } catch (e: CancellationException) {
-                    throw e
                 } catch (e: Throwable) {
+                    // rethrow only our own cancellation; a foreign one still has to end the turn
+                    if (e is CancellationException && !isActive) throw e
                     finish(onNewPage)
                 }
             }

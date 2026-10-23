@@ -19,6 +19,7 @@ package io.github.asm0dey.grimmdroid.reader.curl
 
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
@@ -26,6 +27,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TurnSessionSpec :
@@ -303,6 +305,30 @@ class TurnSessionSpec :
                 runCurrent()
                 r.log.takeLast(2) shouldBe listOf("cover:false", "settled:true")
                 r.session.busy shouldBe false
+            }
+        }
+
+        test("foreign CancellationException from jump ends the turn once") {
+            runTest {
+                val r = Rig(this, jumpFn = { throw CancellationException() })
+                r.start(jumpNow = true)
+                runCurrent()
+                r.log.takeLast(2) shouldBe listOf("cover:false", "settled:false")
+                r.session.busy shouldBe false
+                r.log.count { it.startsWith("settled") } shouldBe 1
+            }
+        }
+
+        test("TimeoutCancellationException from an inner withTimeout ends the turn once") {
+            runTest {
+                val r = Rig(this, jumpFn = { withTimeout(10) { awaitCancellation() } })
+                r.start(jumpNow = true)
+                runCurrent()
+                advanceTimeBy(11)
+                runCurrent()
+                r.log.takeLast(2) shouldBe listOf("cover:false", "settled:false")
+                r.session.busy shouldBe false
+                r.log.count { it.startsWith("settled") } shouldBe 1
             }
         }
     })
