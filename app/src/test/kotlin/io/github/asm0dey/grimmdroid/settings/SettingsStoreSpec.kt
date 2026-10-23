@@ -18,6 +18,7 @@
 package io.github.asm0dey.grimmdroid.settings
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CoroutineScope
@@ -30,12 +31,12 @@ class SettingsStoreSpec :
     FunSpec({
         val scopes = mutableListOf<CoroutineScope>()
 
-        fun store() =
-            SettingsStore(
-                PreferenceDataStoreFactory.create(scope = CoroutineScope(Dispatchers.IO).also { scopes += it }) {
-                    Files.createTempDirectory("ds").resolve("settings.preferences_pb").toFile()
-                },
-            )
+        fun dataStore() =
+            PreferenceDataStoreFactory.create(scope = CoroutineScope(Dispatchers.IO).also { scopes += it }) {
+                Files.createTempDirectory("ds").resolve("settings.preferences_pb").toFile()
+            }
+
+        fun store() = SettingsStore(dataStore())
 
         afterSpec { scopes.forEach { it.cancel() } }
 
@@ -53,5 +54,44 @@ class SettingsStoreSpec :
             s.lastBook.first() shouldBe LastBook(1, 7, "/b.epub", open = true)
             s.setReaderClosed()
             s.lastBook.first() shouldBe LastBook(1, 7, "/b.epub", open = false)
+        }
+
+        test("fresh install migrates to SLIDE") {
+            val s = store()
+            s.migratePageTurn()
+            s.pageTurn.first() shouldBe PageTurn.SLIDE
+        }
+
+        test("existing user with the switch on migrates to SLIDE") {
+            val ds = dataStore()
+            val s = SettingsStore(ds)
+            ds.edit { it[LEGACY_ANIMATE_PAGE_TURNS] = true }
+            s.setCurrentAccountId(1)
+            s.migratePageTurn()
+            s.pageTurn.first() shouldBe PageTurn.SLIDE
+        }
+
+        test("existing user who never touched the switch migrates to NONE") {
+            val s = store()
+            s.setCurrentAccountId(1)
+            s.migratePageTurn()
+            s.pageTurn.first() shouldBe PageTurn.NONE
+        }
+
+        test("migration runs once") {
+            val s = store()
+            s.migratePageTurn()
+            s.setPageTurn(PageTurn.CURL)
+            s.migratePageTurn()
+            s.pageTurn.first() shouldBe PageTurn.CURL
+        }
+
+        test("turn speed defaults to 450 and clamps") {
+            val s = store()
+            s.turnSpeedMs.first() shouldBe 450
+            s.setTurnSpeedMs(50)
+            s.turnSpeedMs.first() shouldBe 200
+            s.setTurnSpeedMs(5000)
+            s.turnSpeedMs.first() shouldBe 1000
         }
     })

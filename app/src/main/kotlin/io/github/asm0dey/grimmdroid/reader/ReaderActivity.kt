@@ -64,6 +64,7 @@ import androidx.lifecycle.withStarted
 import io.github.asm0dey.grimmdroid.GrimmdroidApp
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.catalog.DownloadState
+import io.github.asm0dey.grimmdroid.settings.PageTurn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -217,7 +218,7 @@ class ReaderActivity : FragmentActivity() {
         if (open != null) {
             // Only after the book opened once in this process, so the DataStore already holds the settings in memory.
             settings = runBlocking { settingsStore.settings.first() }
-            animatePageTurns = runBlocking { appSettings.animatePageTurns.first() }
+            animatePageTurns = runBlocking { appSettings.pageTurn.first() == PageTurn.SLIDE }
         }
         fonts = fontStore.list(accountId) // a few file names, declared by the navigator created next
         supportFragmentManager.fragmentFactory =
@@ -273,7 +274,7 @@ class ReaderActivity : FragmentActivity() {
                 applySettings()
             }
         }
-        lifecycleScope.launch { appSettings.animatePageTurns.collect { animatePageTurns = it } }
+        lifecycleScope.launch { appSettings.pageTurn.collect { animatePageTurns = it == PageTurn.SLIDE } }
         lifecycleScope.launch {
             val madeCurrent = getString(R.string.position_made_current)
             vm.madeCurrent.collect { Toast.makeText(this@ReaderActivity, madeCurrent, Toast.LENGTH_SHORT).show() }

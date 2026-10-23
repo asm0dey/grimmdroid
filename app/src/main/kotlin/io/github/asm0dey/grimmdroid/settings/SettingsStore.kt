@@ -22,6 +22,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
@@ -30,9 +31,14 @@ import kotlinx.coroutines.flow.map
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+enum class PageTurn { NONE, SLIDE, CURL }
+
 enum class Layout { GRID, LIST }
 
 enum class StartScreen { HOME, LIBRARY, LAST_BOOK, LAST_PLACE }
+
+/** The pre-[PageTurn] on/off switch; read only by [SettingsStore.migratePageTurn]. */
+internal val LEGACY_ANIMATE_PAGE_TURNS = booleanPreferencesKey("animate_page_turns")
 
 /** The book the reader opened last; [open] stays true until the reader is left with Back. */
 data class LastBook(
@@ -71,10 +77,27 @@ class SettingsStore(
         store.edit { it[DYNAMIC_COLOR] = enabled }
     }
 
-    val animatePageTurns: Flow<Boolean> = store.data.map { it[ANIMATE_PAGE_TURNS] ?: false }
+    val pageTurn: Flow<PageTurn> =
+        store.data.map { p -> PageTurn.entries.firstOrNull { it.name == p[PAGE_TURN] } ?: PageTurn.SLIDE }
 
-    suspend fun setAnimatePageTurns(enabled: Boolean) {
-        store.edit { it[ANIMATE_PAGE_TURNS] = enabled }
+    suspend fun setPageTurn(t: PageTurn) {
+        store.edit { it[PAGE_TURN] = t.name }
+    }
+
+    val turnSpeedMs: Flow<Int> = store.data.map { it[TURN_SPEED_MS] ?: 450 }
+
+    suspend fun setTurnSpeedMs(ms: Int) {
+        store.edit { it[TURN_SPEED_MS] = ms.coerceIn(200, 1000) }
+    }
+
+    /** Carries the old animate switch over to [pageTurn]; does nothing once [pageTurn] is stored. */
+    suspend fun migratePageTurn() {
+        store.edit {
+            if (it[PAGE_TURN] != null) return@edit
+            val old = it[LEGACY_ANIMATE_PAGE_TURNS]
+            val existing = it[CURRENT_ACCOUNT] != null
+            it[PAGE_TURN] = (if (old == true || (old == null && !existing)) PageTurn.SLIDE else PageTurn.NONE).name
+        }
     }
 
     val libraryLayout: Flow<Layout> = store.data.map { p -> Layout.entries.firstOrNull { it.name == p[LAYOUT] } ?: Layout.GRID }
@@ -157,7 +180,8 @@ class SettingsStore(
         val AFTER_DOWNLOAD = stringPreferencesKey("after_download")
         val THEME = stringPreferencesKey("theme")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
-        val ANIMATE_PAGE_TURNS = booleanPreferencesKey("animate_page_turns")
+        val PAGE_TURN = stringPreferencesKey("page_turn")
+        val TURN_SPEED_MS = intPreferencesKey("turn_speed_ms")
         val LAYOUT = stringPreferencesKey("library_layout")
         val START_SCREEN = stringPreferencesKey("start_screen")
         val LAST_TAB = stringPreferencesKey("last_tab")
