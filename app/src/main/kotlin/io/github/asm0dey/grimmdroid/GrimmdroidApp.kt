@@ -18,6 +18,7 @@
 package io.github.asm0dey.grimmdroid
 
 import android.app.Application
+import android.webkit.WebView
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import io.github.asm0dey.grimmdroid.download.DownloadHost
@@ -35,6 +36,8 @@ class GrimmdroidApp :
     val container by lazy { AppContainer(this) }
 
     override fun onCreate() {
+        // Before any WebView exists: lets page pictures draw any page of a chapter, not only the visible one.
+        WebView.enableSlowWholeDocumentDraw()
         super.onCreate()
         container.appScope.launch { container.settings.migratePageTurn() }
     }
