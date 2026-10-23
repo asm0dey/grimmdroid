@@ -23,6 +23,7 @@ import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.os.SystemClock
 import android.util.Log
@@ -65,6 +66,11 @@ enum class TurnResult {
  * then lets Readium jump underneath. Pages are indexed by [Side] ordinal: 0 previous, 1 current,
  * 2 next. [jump] and [awaitPainted] go to [TurnSession]; [onSettled] fires once per started turn.
  *
+ * A backward turn is a forward curl seen in a mirror: the curl view gets `scaleX = -1`, the
+ * curl runs forward from 3 (current, mirrored) to 4 (previous, mirrored), and the events it is
+ * sent use `width - x`. So the current page peels from its left edge and reveals the previous one.
+ * Everything else ([TurnSession], middle, release, flick) stays in screen coordinates.
+ *
  * Touch: events go to [content] until a move is clearly horizontal (beyond touch slop, more
  * horizontal than vertical, [curlActive], not [selecting]); then [content] gets ACTION_CANCEL and
  * the curl gets the drag, left = forward. A gesture that starts while a turn runs is swallowed.
@@ -89,14 +95,15 @@ class TurnOverlay(
     private val pictures = PagePictures(content)
 
     // Copies handed to the curl: PagePictures redraws its bitmaps in place while the GL thread may upload them.
-    private val copies = arrayOfNulls<Bitmap>(Side.entries.size)
+    // Then MIRRORED_CURRENT and MIRRORED_PREVIOUS, made when a backward turn begins.
+    private val copies = arrayOfNulls<Bitmap>(Side.entries.size + 2)
 
     private val curl =
         CurlTextureView(context).apply {
             alpha = 0f // not INVISIBLE: the TextureView must have its surface before the first turn
             pageProvider =
                 object : CurlTextureView.PageProvider {
-                    override val pageCount = Side.entries.size
+                    override val pageCount = Side.entries.size + 2
 
                     override fun updatePage(
                         page: CurlPage,
@@ -110,6 +117,7 @@ class TurnOverlay(
 
     private val settled: (Boolean) -> Unit = { turned ->
         curl.alpha = 0f // the overlay raises the cover itself, so the session may never lower it
+        curl.scaleX = 1f
         snapshot()
         onSettled(turned)
     }
@@ -308,13 +316,13 @@ class TurnOverlay(
 
     /**
      * A flick plays the rest of the turn by moving the finger, decelerating from finger speed, to
-     * the completed position: a page width past the left edge forward, the right edge back, at the
-     * anchor's y. There it lifts with a zero-length finish, so the turn reports at once. Not
+     * the completed position: a page width past the left edge (backward, in the mirror: past the
+     * right edge), at the anchor's y. There it lifts with a zero-length finish, so the turn reports at once. Not
      * [CurlTextureView.autoTurn]: the finger's curl is still running, and a new curl must not
      * start before its turnListener fires.
      */
     private fun playFlick() {
-        val endX = if (forward) -width.toFloat() else width.toFloat()
+        val endX = if (forward) -width.toFloat() else 2f * width
         val startX = lastX
         val startY = lastY
         val endY = downY
@@ -357,10 +365,18 @@ class TurnOverlay(
         this.auto = auto
         instant = false
         released = false
-        jumpFirst = copies[target()] == null
+        jumpFirst = copies[pictureOf()] == null
         raising = true
-        framesToWait = 2
-        if (curl.currentIndex != Side.CURRENT.ordinal) curl.setCurrentIndex(Side.CURRENT.ordinal)
+        framesToWait = 2 // also covers the mirrored textures' upload
+        curl.scaleX = if (forward) 1f else -1f
+        if (!forward) {
+            copies[MIRRORED_CURRENT] = mirror(copies[Side.CURRENT.ordinal])
+            copies[MIRRORED_PREVIOUS] = mirror(copies[Side.PREVIOUS.ordinal])
+            copies[MIRRORED_CURRENT]?.let { curl.setPage(MIRRORED_CURRENT, it) }
+            copies[MIRRORED_PREVIOUS]?.let { curl.setPage(MIRRORED_PREVIOUS, it) }
+        }
+        val start = if (forward) Side.CURRENT.ordinal else MIRRORED_CURRENT
+        if (curl.currentIndex != start) curl.setCurrentIndex(start)
         curl.requestRender()
         raiseTimeout =
             scope.launch {
@@ -373,7 +389,14 @@ class TurnOverlay(
         return true
     }
 
-    private fun target() = if (forward) Side.NEXT.ordinal else Side.PREVIOUS.ordinal
+    /** The target page's picture in [copies]. */
+    private fun pictureOf() = if (forward) Side.NEXT.ordinal else Side.PREVIOUS.ordinal
+
+    /** The target page's index in the curl: backward, the mirrored previous page. */
+    private fun target() = if (forward) Side.NEXT.ordinal else MIRRORED_PREVIOUS
+
+    private fun mirror(bitmap: Bitmap?) =
+        bitmap?.let { Bitmap.createBitmap(it, 0, 0, it.width, it.height, Matrix().apply { preScale(-1f, 1f) }, false) }
 
     /**
      * The first update after [begin] may hold a frame started before the pages were set, so the
@@ -407,18 +430,20 @@ class TurnOverlay(
             // The target is now Readium's current page; the cover keeps showing the old one at index 1.
             pictures.refresh()
             val copy = pictures[Side.CURRENT]?.copy(Bitmap.Config.ARGB_8888, false) ?: return session.abort()
-            copies[target()] = copy
-            curl.setPage(target(), copy)
+            copies[pictureOf()] = copy
+            val shown = if (forward) copy else mirror(copy)!!
+            copies[target()] = shown
+            curl.setPage(target(), shown)
         }
         curlRunning = true
         when {
             auto -> {
-                curl.autoTurn(forward, speedMs)
+                curl.autoTurn(true, speedMs) // backward: forward in the mirror
                 watch(true)
             }
 
             released && releaseCompletes -> {
-                curl.autoTurn(forward, curl.releaseDurationMs)
+                curl.autoTurn(true, curl.releaseDurationMs)
                 watch(true)
             }
 
@@ -435,8 +460,8 @@ class TurnOverlay(
 
     private fun startFingerCurl() {
         curlDownTime = SystemClock.uptimeMillis()
-        // The curl picks its direction from the DOWN's half of the page; the drag picks it here.
-        sendToCurl(MotionEvent.ACTION_DOWN, if (forward) width - 1f else 0f, downY)
+        // The curl curls forward from a DOWN on its right half; backward that is the screen's left edge.
+        sendToCurl(MotionEvent.ACTION_DOWN, if (forward) width - 1f else 1f, downY)
         fingerDown = true
         sendToCurl(MotionEvent.ACTION_MOVE, lastX, lastY)
         if (curl.curlState == CurlTextureView.CURL_NONE) {
@@ -459,7 +484,9 @@ class TurnOverlay(
             fingerDown = false
             if (curlRunning) watch(passedMiddle(x))
         }
-        val event = MotionEvent.obtain(curlDownTime, SystemClock.uptimeMillis(), action, x, y, 0)
+        // A direct dispatch skips the view's scaleX, so the curl gets backward's mirror here.
+        val curlX = if (forward) x else width - x
+        val event = MotionEvent.obtain(curlDownTime, SystemClock.uptimeMillis(), action, curlX, y, 0)
         curl.dispatchTouchEvent(event)
         event.recycle()
     }
@@ -503,6 +530,8 @@ class TurnOverlay(
             copies[side.ordinal] = copy
             if (copy != null) curl.setPage(side.ordinal, copy)
         }
+        copies[MIRRORED_CURRENT] = null // stale now; a backward turn makes them afresh
+        copies[MIRRORED_PREVIOUS] = null
         idle()
     }
 
@@ -516,5 +545,7 @@ class TurnOverlay(
         const val FLICK_MS = 200
         const val FRAME_WAIT_MS = 100L // about two frames, plus a texture upload
         const val WATCHDOG_SLACK_MS = 1000L
+        const val MIRRORED_CURRENT = 3
+        const val MIRRORED_PREVIOUS = 4
     }
 }

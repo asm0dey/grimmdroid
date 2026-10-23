@@ -134,6 +134,55 @@ class TurnOverlayTest {
         assertTrue(overlay.turning)
     }
 
+    /** What the curl is sent: (action, x). */
+    private fun recordCurl(): MutableList<Pair<Int, Float>> {
+        val sent = mutableListOf<Pair<Int, Float>>()
+        curl.setOnTouchListener { _, e ->
+            sent += e.actionMasked to e.x
+            false
+        }
+        return sent
+    }
+
+    @Test
+    fun backwardDragIsAMirroredForwardCurl() {
+        val sent = recordCurl()
+        send(MotionEvent.ACTION_DOWN, x0, y0)
+        send(MotionEvent.ACTION_MOVE, x0 + 3 * slop, y0)
+        assertTrue(overlay.turning)
+        assertEquals(-1f, curl.scaleX) // before the cover's first frame
+        assertEquals(3, curl.currentIndex) // the mirrored current page
+        frame()
+        frame()
+        scope.runCurrent() // jump first (no picture of the previous page), then the curl starts
+        assertEquals(MotionEvent.ACTION_DOWN to WIDTH - 1f, sent[0]) // the right edge, as forward
+        assertEquals(MotionEvent.ACTION_MOVE to WIDTH - (x0 + 3 * slop), sent[1])
+    }
+
+    @Test
+    fun backwardTurnRestoresTheCurlAfterSettling() {
+        overlay.turn(false)
+        assertEquals(-1f, curl.scaleX)
+        overlay.abort()
+        assertEquals(listOf(false), settled)
+        assertEquals(1f, curl.scaleX)
+        assertEquals(1, curl.currentIndex)
+    }
+
+    @Test
+    fun forwardDragIsNotMirrored() {
+        val sent = recordCurl()
+        send(MotionEvent.ACTION_DOWN, x0, y0)
+        send(MotionEvent.ACTION_MOVE, x0 - 3 * slop, y0)
+        assertEquals(1f, curl.scaleX)
+        assertEquals(1, curl.currentIndex)
+        frame()
+        frame()
+        scope.runCurrent()
+        assertEquals(MotionEvent.ACTION_DOWN to WIDTH - 1f, sent[0])
+        assertEquals(MotionEvent.ACTION_MOVE to x0 - 3 * slop, sent[1])
+    }
+
     @Test
     fun selectionBlocksTakeover() {
         selectingNow = true

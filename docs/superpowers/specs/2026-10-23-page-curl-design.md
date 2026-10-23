@@ -75,6 +75,11 @@ traps below. Build fresh from this document; don't copy the spike.
   the finger, and can be held mid-turn, finished by releasing past the
   middle, or cancelled by releasing before it.
 - A flick (finger lifted fast) plays the whole turn by itself.
+- A backward turn is the mirror of a forward one: the current page peels
+  from its left edge towards the right and reveals the previous page. The
+  overlay plays a forward curl in a horizontally mirrored curl view
+  (`scaleX = -1`, mirrored copies of the current and previous pictures,
+  events at `width - x`).
 - Turns that play by themselves start near a bottom corner and move left and
   slightly up (forward) or the mirror (backward), so the fold leans instead
   of standing vertical.
