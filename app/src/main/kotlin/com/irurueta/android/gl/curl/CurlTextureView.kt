@@ -662,8 +662,9 @@ class CurlTextureView @JvmOverloads constructor(
     /**
      * grimmdroid: a turn that plays by itself, without synthetic touch events: a pretend finger
      * moves over [durationMs], accelerate-decelerate, forward from 97 % width / 88 % height to
-     * -90 % / 72 %, backward the reverse (-90 % / 72 % to 97 % / 88 %). Where the path ends the
-     * turn completes at once (no release tail) and is reported to [turnListener] as `true`.
+     * -100 % / 72 %, backward from -90 % / 72 % to 100 % / 88 %. The x ends are the completed
+     * release targets (fold on the left edge, fold on the right edge), so the turn completes at
+     * once where the path ends (no release tail) and is reported to [turnListener] as `true`.
      * Touches are ignored while the path plays. If the path is cancelled anyway (by another
      * animation of this view) the turn completes at once too, so [turnListener] still fires
      * exactly once with `true`. If there is no page to turn, [turnListener] gets `false` straight
@@ -671,10 +672,17 @@ class CurlTextureView @JvmOverloads constructor(
      */
     fun autoTurn(forward: Boolean, durationMs: Int) {
         cancelCurlAnimator()
+        val curlRenderer = this.curlRenderer
+        val rect = curlRenderer?.getPageRect(CurlRenderer.PAGE_RIGHT)
+        if (curlRenderer == null || rect == null) {
+            post { turnListener?.invoke(false) }
+            return
+        }
         val w = width.toFloat()
         val h = height.toFloat()
         val x0 = if (forward) w * 0.97f else -w * 0.9f
-        val x1 = if (forward) -w * 0.9f else w * 0.97f
+        // The completed targets of CurlGeometry.release, in view pixels.
+        val x1 = curlRenderer.inverseTranslateX(if (forward) rect.left - rect.width() else rect.right)
         val y0 = if (forward) h * 0.88f else h * 0.72f
         val y1 = if (forward) h * 0.72f else h * 0.88f
 
