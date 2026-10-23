@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// grimmdroid: IDE inspection cleanups applied (behaviour-preserving).
 
 package com.irurueta.android.gl.curl
 
@@ -1569,14 +1570,14 @@ class CurlTextureView @JvmOverloads constructor(
             ++rightIdx
         }
 
-        if (rightIdx >= 0 && rightIdx < pageProvider.pageCount) {
+        if (rightIdx in 0..<pageProvider.pageCount) {
             updatePage(pageRight.texturePage, rightIdx, targetRightIndex)
             pageRight.setFlipTexture(false)
             pageRight.setRect(curlRenderer?.getPageRect(CurlRenderer.PAGE_RIGHT))
             pageRight.reset()
             curlRenderer?.addCurlMesh(pageRight)
         }
-        if (leftIdx >= 0 && leftIdx < pageProvider.pageCount) {
+        if (leftIdx in 0..<pageProvider.pageCount) {
             val primaryIdx = targetLeftIndex ?: leftIdx
             updatePage(pageLeft.texturePage, primaryIdx, leftIdx)
             pageLeft.setFlipTexture(true)
@@ -1586,7 +1587,7 @@ class CurlTextureView @JvmOverloads constructor(
                 curlRenderer?.addCurlMesh(pageLeft)
             }
         }
-        if (curlIdx >= 0 && curlIdx < pageProvider.pageCount) {
+        if (curlIdx in 0..<pageProvider.pageCount) {
             updatePage(pageCurl.texturePage, curlIdx)
 
             if (curlState == CURL_RIGHT) {

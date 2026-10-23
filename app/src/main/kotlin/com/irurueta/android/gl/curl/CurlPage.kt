@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// grimmdroid: IDE inspection cleanups applied (behaviour-preserving).
 package com.irurueta.android.gl.curl
 
 import android.graphics.Bitmap
@@ -178,9 +179,11 @@ class CurlPage {
             SIDE_FRONT -> {
                 textureFront = texture2
             }
+
             SIDE_BACK -> {
                 textureBack = texture2
             }
+
             SIDE_BOTH -> {
                 textureFront = texture2
                 textureBack = texture2
@@ -224,10 +227,7 @@ class CurlPage {
         if (bitmap == null) {
             return null
         }
-        val bitmapConfig = bitmap.config
-        if (bitmapConfig == null) {
-            return null
-        }
+        val bitmapConfig = bitmap.config ?: return null
 
         // Bitmap original size
         val w = bitmap.width

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// grimmdroid: IDE inspection cleanups applied (behaviour-preserving).
 
 package com.irurueta.android.gl.curl
 
@@ -262,7 +263,7 @@ class CurlMesh private constructor(
         this.maxCurlSplits = max(1, maxCurlSplits)
 
         arrScanLines = CurlArray(this.maxCurlSplits + 2)
-        (0 until 11).forEach { i ->
+        (0 until 11).forEach { _ ->
             arrTempVertices.add(Vertex())
         }
 
@@ -271,7 +272,7 @@ class CurlMesh private constructor(
             arrSelfShadowVertices = CurlArray(num)
             arrDropShadowVertices = CurlArray(num)
             arrTempShadowVertices = CurlArray(num)
-            (0 until num).forEach { i ->
+            (0 until num).forEach { _ ->
                 arrTempShadowVertices?.add(ShadowVertex())
             }
         }
@@ -510,13 +511,11 @@ class CurlMesh private constructor(
         // is starting from 'infinity'.
         var scanXmax = arrRotatedVertices[0].posX + 1
 
-        for (i in 0 until arrScanLines.size) {
+        for ((i, scanXmin) in arrScanLines.withIndex()) {
             // Once we have scanXmin and scanXmax we have a scan area to start
             // working with.
-            val scanXmin = arrScanLines[i]
             // First iterate 'original' rectangle vertices within scan area.
-            for (j in 0 until arrRotatedVertices.size) {
-                val v = arrRotatedVertices[j]
+            for (v in arrRotatedVertices) {
 
                 // Test if vertex lies within this scan area.
                 if (v.posX in scanXmin..scanXmax) {
@@ -696,8 +695,7 @@ class CurlMesh private constructor(
                 bufShadowVertices.position(0)
                 dropShadowCount = 0
 
-                for (i in 0 until arrDropShadowVertices.size) {
-                    val sv = arrDropShadowVertices[i]
+                for (sv in arrDropShadowVertices) {
                     bufShadowVertices.put(sv.posX.toFloat())
                     bufShadowVertices.put(sv.posY.toFloat())
                     bufShadowVertices.put(sv.posZ.toFloat())
@@ -716,8 +714,7 @@ class CurlMesh private constructor(
 
                 selfShadowCount = 0
 
-                for (i in 0 until arrSelfShadowVertices.size) {
-                    val sv = arrSelfShadowVertices[i]
+                for (sv in arrSelfShadowVertices) {
                     bufShadowVertices.put(sv.posX.toFloat())
                     bufShadowVertices.put(sv.posY.toFloat())
                     bufShadowVertices.put(sv.posZ.toFloat())
@@ -1056,9 +1053,9 @@ class CurlMesh private constructor(
         arrIntersections.clear()
 
         // Iterate through rectangle lines each represented as a pair of vertices.
-        for (j in lineIndices.indices) {
-            val v1 = vertices[lineIndices[j][0]]
-            val v2 = vertices[lineIndices[j][1]]
+        for (line in lineIndices) {
+            val v1 = vertices[line[0]]
+            val v2 = vertices[line[1]]
 
             // Here we expect that v1.posX >= v2.posX and want to do intersection
             // test the opposite way.
@@ -1167,7 +1164,7 @@ class CurlMesh private constructor(
     /**
      * Simple fixed size array implementation.
      */
-    private class CurlArray<T> private constructor() {
+    private class CurlArray<T> private constructor() : Iterable<T> {
 
         /**
          * Internal array.
@@ -1208,7 +1205,7 @@ class CurlMesh private constructor(
          */
         @Throws(IndexOutOfBoundsException::class)
         fun add(index: Int, item: T) {
-            if (index < 0 || index > size || size >= capacity) {
+            if (index !in 0..size || size >= capacity) {
                 throw IndexOutOfBoundsException()
             }
             for (i in size downTo index + 1) {
@@ -1245,9 +1242,17 @@ class CurlMesh private constructor(
             if (size + array.size > capacity) {
                 throw IndexOutOfBoundsException()
             }
-            for (i in 0 until array.size) {
-                this.array[size++] = array[i]
+            for (element in array) {
+                this.array[size++] = element
             }
+        }
+
+        override fun iterator(): Iterator<T> = object : Iterator<T> {
+            private var next = 0
+
+            override fun hasNext() = next < size
+
+            override fun next(): T = get(next++)
         }
 
         /**
@@ -1265,7 +1270,7 @@ class CurlMesh private constructor(
         @Suppress("UNCHECKED_CAST")
         @Throws(IndexOutOfBoundsException::class)
         operator fun get(index: Int): T {
-            if (index < 0 || index >= size) {
+            if (index !in 0..<size) {
                 throw IndexOutOfBoundsException()
             }
 
@@ -1280,7 +1285,7 @@ class CurlMesh private constructor(
         @Suppress("UNCHECKED_CAST")
         @Throws(IndexOutOfBoundsException::class)
         fun remove(index: Int): T {
-            if (index < 0 || index >= size) {
+            if (index !in 0..<size) {
                 throw IndexOutOfBoundsException()
             }
 
