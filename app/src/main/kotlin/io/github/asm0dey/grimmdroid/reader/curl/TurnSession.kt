@@ -17,6 +17,7 @@
  */
 package io.github.asm0dey.grimmdroid.reader.curl
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -30,11 +31,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * A turn: [start] -> (jump under the curl) -> [curlFinished] -> cover removed once the
  * jump has painted (or [paintTimeoutMs] passed) -> [onSettled]. Every path, including a
- * paint timeout and [abort], removes the cover and ends with [busy] == false.
+ * timeout, a failing callback and [abort], removes the cover and ends with [busy] == false.
+ * [onSettled] fires exactly once for every [start] that returned true, so the caller can
+ * always release its locator gating there.
  *
  * [jump] moves Readium instantly and returns false at the book's edge. [onSettled]`(true)`
  * means the reader is on the new page and the user sees it; `false` means it is on the
- * original page.
+ * original page. The value reflects where the reader actually is: it changes only when a
+ * [jump] returned true.
  */
 class TurnSession(
     private val scope: CoroutineScope,
@@ -48,7 +52,9 @@ class TurnSession(
         private set
 
     private var forward = true
-    private var jumped = false // reader is (or is being moved) on the new page
+    private var wantNew = false // the page the turn is heading for
+    private var onNewPage = false // where the reader actually is
+    private var turn: Job? = null // parent of every jump of this turn
     private var painted = true // the latest jump has painted
     private var noTarget = false // the book has no page in that direction
     private var curlDone = false
@@ -68,7 +74,9 @@ class TurnSession(
         if (busy) return false
         busy = true
         this.forward = forward
-        jumped = false
+        wantNew = false
+        onNewPage = false
+        turn = Job(scope.coroutineContext[Job])
         painted = true
         noTarget = false
         curlDone = false
@@ -85,7 +93,7 @@ class TurnSession(
     }
 
     fun passedMiddle(passed: Boolean) {
-        if (!busy || curlDone || noTarget || jumped == passed) return
+        if (!busy || curlDone || noTarget || wantNew == passed) return
         launchJump(passed)
     }
 
@@ -93,64 +101,73 @@ class TurnSession(
         if (!busy || curlDone) return
         curlDone = true
         this.completed = completed && !noTarget
-        if (this.completed != jumped && !noTarget) launchJump(this.completed)
+        if (this.completed != wantNew && !noTarget) launchJump(this.completed)
         tryFinish()
     }
 
     /** Ends any turn now; the reader stays wherever it is and the cover goes away. */
     fun abort() {
         if (!busy) return
-        gen++
-        job?.cancel()
-        finish(jumped && !noTarget)
+        finish(onNewPage)
     }
 
     private fun launchJump(toNew: Boolean) {
         val prev = job
         val mine = ++gen
-        jumped = toNew
+        wantNew = toNew
         painted = false
         job =
-            scope.launch {
+            scope.launch(turn!!) {
                 prev?.join()
-                val ok = jump(if (toNew) forward else !forward)
-                if (mine != gen) return@launch
-                if (!ok) {
-                    jumped = false
-                    noTarget = true
-                    if (readyPending != null) return@launch silentEnd()
-                } else {
-                    withTimeoutOrNull(paintTimeoutMs) { awaitPainted() }
+                try {
+                    var returned = false
+                    var ok = true
+                    // jump and paint share one bound: Readium's go() can get stuck
+                    withTimeoutOrNull(paintTimeoutMs) {
+                        if (toNew != onNewPage) {
+                            ok = jump(if (toNew) forward else !forward)
+                            returned = true
+                            if (ok) {
+                                onNewPage = toNew
+                                awaitPainted()
+                            }
+                        } else {
+                            returned = true // already there
+                        }
+                    }
+                    if (!returned) return@launch finish(onNewPage) // jump hung
+                    if (!ok && toNew) {
+                        noTarget = true
+                        wantNew = false
+                    }
                     if (mine != gen) return@launch
+                    if (!ok && readyPending != null) return@launch finish(onNewPage)
+                    painted = true
+                    readyPending?.let {
+                        readyPending = null
+                        showCover()
+                        it()
+                    }
+                    tryFinish()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    finish(onNewPage)
                 }
-                painted = true
-                readyPending?.let {
-                    readyPending = null
-                    showCover()
-                    it()
-                }
-                tryFinish()
             }
     }
 
     private fun tryFinish() {
-        if (curlDone && painted) finish(completed)
-    }
-
-    private fun silentEnd() {
-        reset()
-        hideCover()
+        if (curlDone && painted) finish(onNewPage)
     }
 
     private fun finish(turned: Boolean) {
-        reset()
-        hideCover()
-        onSettled(turned)
-    }
-
-    private fun reset() {
+        if (!busy) return
         busy = false
         readyPending = null
+        turn?.cancel()
+        hideCover()
+        onSettled(turned)
     }
 
     private fun showCover() {

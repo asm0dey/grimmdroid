@@ -33,6 +33,7 @@ class TurnSessionSpec :
         class Rig(
             scope: TestScope,
             jumpResult: Boolean = true,
+            jumpFn: suspend (Boolean) -> Boolean = { jumpResult },
             paint: suspend () -> Unit = {},
         ) {
             val log = mutableListOf<String>()
@@ -41,7 +42,7 @@ class TurnSessionSpec :
                     scope = scope,
                     jump = { fwd ->
                         log += "jump:${if (fwd) "fwd" else "back"}"
-                        jumpResult
+                        jumpFn(fwd)
                     },
                     awaitPainted = {
                         paint()
@@ -163,7 +164,7 @@ class TurnSessionSpec :
                 val r = Rig(this, jumpResult = false)
                 r.start(jumpNow = true, hasPicture = false) shouldBe true
                 runCurrent()
-                r.log shouldBe listOf("jump:fwd")
+                r.log shouldBe listOf("jump:fwd", "settled:false")
                 r.session.busy shouldBe false
             }
         }
@@ -173,6 +174,7 @@ class TurnSessionSpec :
                 val r = Rig(this)
                 r.start(jumpNow = true) shouldBe true
                 r.start(jumpNow = true) shouldBe false
+                r.session.abort()
             }
         }
 
@@ -210,6 +212,95 @@ class TurnSessionSpec :
                 r.start(jumpNow = true)
                 runCurrent()
                 r.session.abort()
+                r.log.takeLast(2) shouldBe listOf("cover:false", "settled:true")
+                r.session.busy shouldBe false
+            }
+        }
+
+        test("abort during forth/back toggling leaves no late jump") {
+            runTest {
+                val r = Rig(this)
+                r.start(jumpNow = false)
+                r.session.passedMiddle(true)
+                r.session.passedMiddle(false)
+                r.session.abort()
+                runCurrent()
+                r.log.none { it.startsWith("jump") } shouldBe true
+                r.log.takeLast(2) shouldBe listOf("cover:false", "settled:false")
+            }
+        }
+
+        test("abort while the forth jump is in flight cancels it") {
+            runTest {
+                val r = Rig(this, jumpFn = { awaitCancellation() })
+                r.start(jumpNow = true)
+                runCurrent()
+                r.session.abort()
+                runCurrent()
+                r.log.takeLast(2) shouldBe listOf("cover:false", "settled:false")
+                r.session.busy shouldBe false
+            }
+        }
+
+        test("forth, back, forth ends completed on the new page") {
+            runTest {
+                val r = Rig(this)
+                r.start(jumpNow = false)
+                r.session.passedMiddle(true)
+                r.session.passedMiddle(false)
+                r.session.passedMiddle(true)
+                runCurrent()
+                r.session.curlFinished(true)
+                r.log.filter { it.startsWith("jump") } shouldBe listOf("jump:fwd", "jump:back", "jump:fwd")
+                r.log.takeLast(2) shouldBe listOf("cover:false", "settled:true")
+            }
+        }
+
+        test("failed jump back settles on the new page") {
+            runTest {
+                val r = Rig(this, jumpFn = { fwd -> fwd })
+                r.start(jumpNow = true)
+                runCurrent()
+                r.session.curlFinished(false)
+                runCurrent()
+                r.log.takeLast(2) shouldBe listOf("cover:false", "settled:true")
+                r.session.busy shouldBe false
+            }
+        }
+
+        test("hung jump ends the turn after the timeout") {
+            runTest {
+                val r = Rig(this, jumpFn = { awaitCancellation() })
+                r.start(jumpNow = true)
+                runCurrent()
+                advanceTimeBy(1499)
+                r.session.busy shouldBe true
+                advanceTimeBy(2)
+                runCurrent()
+                r.log shouldBe listOf("cover:true", "ready", "jump:fwd", "cover:false", "settled:false")
+                r.session.busy shouldBe false
+                r.session.curlFinished(true)
+                r.log.count { it.startsWith("settled") } shouldBe 1
+            }
+        }
+
+        test("throwing jump ends the turn once") {
+            runTest {
+                val r = Rig(this, jumpFn = { error("boom") })
+                r.start(jumpNow = true)
+                runCurrent()
+                r.log.takeLast(2) shouldBe listOf("cover:false", "settled:false")
+                r.session.busy shouldBe false
+                r.session.curlFinished(true)
+                r.log.count { it.startsWith("settled") } shouldBe 1
+            }
+        }
+
+        test("throwing awaitPainted ends the turn once") {
+            runTest {
+                val r = Rig(this, paint = { error("boom") })
+                r.start(jumpNow = true)
+                runCurrent()
                 r.log.takeLast(2) shouldBe listOf("cover:false", "settled:true")
                 r.session.busy shouldBe false
             }
