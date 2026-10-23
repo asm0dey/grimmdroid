@@ -129,7 +129,7 @@ class PagePictures(
         bitmap?.takeIf { it.width == width && it.height == height }
             ?: Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
-    private fun pageCount(web: WebView): Int = (computeHorizontalScrollRange.invoke(web) as Int) / web.width
+    private fun pageCount(web: WebView): Int = pageCount(computeHorizontalScrollRange.invoke(web) as Int, web.width)
 
     private companion object {
         // shortcut: protected View API, reached by reflection; R2WebView's own numPages is internal to Readium.
@@ -151,6 +151,12 @@ internal fun pageIndex(
     scrollX: Int,
     pageWidth: Int,
 ): Int = (scrollX + pageWidth / 2) / pageWidth
+
+/** Pages in a chapter [range] pixels wide, rounded like Readium's `R2WebView.numPages`: the width isn't always a multiple of a page. */
+internal fun pageCount(
+    range: Int,
+    width: Int,
+): Int = (range + width / 2) / width
 
 /** True when every pixel sampled on a 16×16 grid equals the first: nothing was painted. */
 internal fun Bitmap.isBlank(): Boolean {
