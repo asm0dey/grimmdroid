@@ -130,6 +130,7 @@ dependencies {
     implementation(libs.readium.streamer)
     implementation(libs.readium.navigator)
     implementation(libs.jsoup)
+    implementation(libs.gl.utils)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     testImplementation(libs.kotest.runner.junit6)

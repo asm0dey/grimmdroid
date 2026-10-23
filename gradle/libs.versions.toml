@@ -30,6 +30,7 @@ readium = "3.4.0"
 fragment = "1.9.1"
 jsoup = "1.23.2"
 desugarJdkLibs = "2.1.5"
+glUtils = "1.1.11"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -81,6 +82,7 @@ readium-streamer = { module = "org.readium.kotlin-toolkit:readium-streamer", ver
 readium-navigator = { module = "org.readium.kotlin-toolkit:readium-navigator", version.ref = "readium" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+gl-utils = { module = "com.irurueta:irurueta-android-glutils", version.ref = "glUtils" }
 # not a code dependency: lets Renovate track the ktlint version Spotless runs
 ktlint-cli = { module = "com.pinterest.ktlint:ktlint-cli", version.ref = "ktlint" }
 

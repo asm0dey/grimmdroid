@@ -43,6 +43,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -51,7 +52,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -66,11 +69,13 @@ import androidx.core.net.toUri
 import io.github.asm0dey.grimmdroid.R
 import io.github.asm0dey.grimmdroid.account.AccountEntity
 import io.github.asm0dey.grimmdroid.export.AfterDownloadAction
+import io.github.asm0dey.grimmdroid.settings.PageTurn
 import io.github.asm0dey.grimmdroid.settings.StartScreen
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
 import io.github.asm0dey.grimmdroid.ui.nav.serverName
 import io.github.asm0dey.grimmdroid.ui.nav.syncedLabel
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 // Assumed upstream repository; update if the project moves.
 private const val SOURCE_URL = "https://github.com/asm0dey/grimmdroid"
@@ -105,7 +110,8 @@ fun SettingsScreen(
     val afterDownload by vm.afterDownload.collectAsState()
     val theme by vm.theme.collectAsState()
     val dynamic by vm.dynamicColor.collectAsState()
-    val animate by vm.animatePageTurns.collectAsState()
+    val pageTurn by vm.pageTurn.collectAsState()
+    val turnSpeed by vm.turnSpeedMs.collectAsState()
     val startScreen by vm.startScreen.collectAsState()
     val folder by vm.folderName.collectAsState()
     val uploadTargetSet by vm.uploadTargetSet.collectAsState()
@@ -218,12 +224,36 @@ fun SettingsScreen(
             }
 
             Section(stringResource(R.string.section_reading))
-            ListItem(
-                headlineContent = { Text(stringResource(R.string.animate_page_turns)) },
-                supportingContent = { Text(stringResource(R.string.animate_page_turns_hint)) },
-                trailingContent = { Switch(checked = animate, onCheckedChange = null) },
-                modifier = Modifier.toggleable(animate, role = Role.Switch, onValueChange = vm::setAnimatePageTurns),
+            Text(
+                stringResource(R.string.page_turn),
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodyLarge,
             )
+            RadioGroup(
+                listOf(
+                    Triple(PageTurn.NONE, stringResource(R.string.page_turn_none), null),
+                    Triple(PageTurn.SLIDE, stringResource(R.string.page_turn_slide), null),
+                    Triple(PageTurn.CURL, stringResource(R.string.page_turn_curl), null),
+                ),
+                pageTurn,
+                vm::setPageTurn,
+            )
+            if (pageTurn == PageTurn.CURL) {
+                var speed by remember(turnSpeed) { mutableFloatStateOf(turnSpeed.toFloat()) }
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.turn_speed)) },
+                    supportingContent = {
+                        Slider(
+                            value = speed,
+                            onValueChange = { speed = it },
+                            onValueChangeFinished = { vm.setTurnSpeedMs(speed.roundToInt()) },
+                            valueRange = 200f..1000f,
+                            steps = 15,
+                        )
+                    },
+                    trailingContent = { Text(stringResource(R.string.turn_speed_value, speed.roundToInt())) },
+                )
+            }
 
             Section(stringResource(R.string.section_storage))
             ListItem(

@@ -9,6 +9,7 @@ plugins {
 spotless {
     kotlin {
         target("**/src/**/*.kt")
+        targetExclude("**/com/irurueta/**")
         ktlint(libs.versions.ktlint.get())
             .editorConfigOverride(
                 mapOf(

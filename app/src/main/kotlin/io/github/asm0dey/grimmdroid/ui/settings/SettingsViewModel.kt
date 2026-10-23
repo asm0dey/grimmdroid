@@ -37,6 +37,7 @@ import io.github.asm0dey.grimmdroid.export.FolderExport
 import io.github.asm0dey.grimmdroid.reader.PositionSync
 import io.github.asm0dey.grimmdroid.reader.ReaderDao
 import io.github.asm0dey.grimmdroid.reader.positionUploadWork
+import io.github.asm0dey.grimmdroid.settings.PageTurn
 import io.github.asm0dey.grimmdroid.settings.SettingsStore
 import io.github.asm0dey.grimmdroid.settings.StartScreen
 import io.github.asm0dey.grimmdroid.settings.ThemeMode
@@ -86,7 +87,8 @@ class SettingsViewModel(
     val afterDownload = settings.afterDownload.state(AfterDownloadAction.NOTHING)
     val theme = settings.theme.state(ThemeMode.SYSTEM)
     val dynamicColor = settings.dynamicColor.state(true)
-    val animatePageTurns = settings.animatePageTurns.state(false)
+    val pageTurn = settings.pageTurn.state(PageTurn.SLIDE)
+    val turnSpeedMs = settings.turnSpeedMs.state(450)
     val startScreen = settings.startScreen.state(StartScreen.HOME)
 
     /** The current account's export folder name, or null when none is chosen. */
@@ -154,8 +156,12 @@ class SettingsViewModel(
         viewModelScope.launch { settings.setDynamicColor(enabled) }
     }
 
-    fun setAnimatePageTurns(enabled: Boolean) {
-        viewModelScope.launch { settings.setAnimatePageTurns(enabled) }
+    fun setTurnSpeedMs(ms: Int) {
+        viewModelScope.launch { settings.setTurnSpeedMs(ms) }
+    }
+
+    fun setPageTurn(t: PageTurn) {
+        viewModelScope.launch { settings.setPageTurn(t) }
     }
 
     fun setFolder(uri: Uri) {

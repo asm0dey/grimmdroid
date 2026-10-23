@@ -18,11 +18,13 @@
 package io.github.asm0dey.grimmdroid
 
 import android.app.Application
+import android.webkit.WebView
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import io.github.asm0dey.grimmdroid.download.DownloadHost
 import io.github.asm0dey.grimmdroid.reader.PositionUploadHost
 import io.github.asm0dey.grimmdroid.sync.SyncHost
+import kotlinx.coroutines.launch
 
 class GrimmdroidApp :
     Application(),
@@ -32,6 +34,13 @@ class GrimmdroidApp :
     SingletonImageLoader.Factory {
     // Lazy: Robolectric tests start this Application without touching the container.
     val container by lazy { AppContainer(this) }
+
+    override fun onCreate() {
+        // Before any WebView exists: lets page pictures draw any page of a chapter, not only the visible one.
+        WebView.enableSlowWholeDocumentDraw()
+        super.onCreate()
+        container.appScope.launch { container.settings.migratePageTurn() }
+    }
 
     override val librarySync get() = container.librarySync
     override val downloadRepository get() = container.downloadRepository
