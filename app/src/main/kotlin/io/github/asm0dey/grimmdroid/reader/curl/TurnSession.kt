@@ -124,41 +124,54 @@ class TurnSession(
             scope.launch(turn!!) {
                 prev?.join()
                 try {
-                    var returned = false
-                    var ok = true
                     // jump and paint share one bound: Readium's go() can get stuck
-                    withTimeoutOrNull(paintTimeoutMs) {
-                        if (toNew != onNewPage) {
-                            ok = jump(if (toNew) forward else !forward)
-                            returned = true
-                            if (ok) {
-                                onNewPage = toNew
-                                awaitPainted()
-                            }
-                        } else {
-                            returned = true // already there
-                        }
-                    }
-                    if (!returned) return@launch finish(onNewPage) // jump hung
-                    if (!ok && toNew) {
-                        noTarget = true
-                        wantNew = false
-                    }
-                    if (mine != gen) return@launch
-                    if (!ok && readyPending != null) return@launch finish(onNewPage)
-                    painted = true
-                    readyPending?.let {
-                        readyPending = null
-                        showCover()
-                        it()
-                    }
-                    tryFinish()
+                    val ok = jumpWithinTimeout(toNew) ?: return@launch finish(onNewPage) // jump hung
+                    landed(mine, toNew, ok)
                 } catch (e: Throwable) {
                     // rethrow only our own cancellation; a foreign one still has to end the turn
                     if (e is CancellationException && !isActive) throw e
                     finish(onNewPage)
                 }
             }
+    }
+
+    /** Jumps toward [toNew]; null when the jump itself hung. A paint that times out counts as painted. */
+    private suspend fun jumpWithinTimeout(toNew: Boolean): Boolean? {
+        var ok: Boolean? = null
+        withTimeoutOrNull(paintTimeoutMs) {
+            if (toNew == onNewPage) {
+                ok = true // already there
+                return@withTimeoutOrNull
+            }
+            val moved = jump(if (toNew) forward else !forward)
+            ok = moved
+            if (moved) {
+                onNewPage = toNew
+                awaitPainted()
+            }
+        }
+        return ok
+    }
+
+    /** A jump of generation [mine] returned [ok]; only the latest jump marks the page painted. */
+    private fun landed(
+        mine: Int,
+        toNew: Boolean,
+        ok: Boolean,
+    ) {
+        if (!ok && toNew) {
+            noTarget = true
+            wantNew = false
+        }
+        if (mine != gen) return
+        if (!ok && readyPending != null) return finish(onNewPage)
+        painted = true
+        readyPending?.let {
+            readyPending = null
+            showCover()
+            it()
+        }
+        tryFinish()
     }
 
     private fun tryFinish() {

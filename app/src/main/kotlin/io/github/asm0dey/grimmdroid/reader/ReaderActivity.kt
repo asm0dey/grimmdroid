@@ -403,34 +403,7 @@ class ReaderActivity : FragmentActivity() {
 
     private fun bind(navigator: EpubNavigatorFragment) {
         // Edge thirds turn pages (as Readium's DirectionalNavigationAdapter did, but through turnPage); the middle third toggles the chrome.
-        navigator.addInputListener(
-            object : InputListener {
-                override fun onTap(event: TapEvent): Boolean {
-                    if (navigator.overflow.value.scroll) return false
-                    val width = navigator.publicationView.width
-                    val right =
-                        when {
-                            event.point.x >= width * 2 / 3f -> true
-                            event.point.x <= width / 3f -> false
-                            else -> return false
-                        }
-                    return navigatorReady && turnPage(navigator, right != rtl(navigator), opensChrome = !inSystemGestureEdge(event.point.y))
-                }
-
-                override fun onKey(event: InputKeyEvent): Boolean {
-                    if (event.type != InputKeyEvent.Type.Down || event.modifiers.isNotEmpty()) return false
-                    val forward =
-                        when (event.key) {
-                            Key.ArrowUp -> false
-                            Key.ArrowDown, Key.Space -> true
-                            Key.ArrowLeft -> rtl(navigator)
-                            Key.ArrowRight -> !rtl(navigator)
-                            else -> return false
-                        }
-                    return navigatorReady && turnPage(navigator, forward)
-                }
-            },
-        )
+        navigator.addInputListener(turnListener(navigator))
         navigator.addInputListener(
             object : InputListener {
                 override fun onTap(event: TapEvent): Boolean {
@@ -444,15 +417,7 @@ class ReaderActivity : FragmentActivity() {
         owner.lifecycleScope.launch {
             owner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
-                    navigator.currentLocator.collect { current ->
-                        // Mid-turn, Readium is already on the target page while the user still sees the old one: onTurnSettled reports it.
-                        if (curl.turning) return@collect
-                        val settled = current == handledOnSettle
-                        handledOnSettle = null
-                        if (settled) return@collect
-                        showLocator(navigator, current)
-                        repicture() // a jump from the table of contents, a bookmark, a search, or a turn without the curl
-                    }
+                    navigator.currentLocator.collect { onLocator(navigator, it) }
                 }
                 launch {
                     vm.navigateTo.collect { target ->
@@ -466,6 +431,47 @@ class ReaderActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    private fun turnListener(navigator: EpubNavigatorFragment) =
+        object : InputListener {
+            override fun onTap(event: TapEvent): Boolean {
+                if (navigator.overflow.value.scroll) return false
+                val width = navigator.publicationView.width
+                val right =
+                    when {
+                        event.point.x >= width * 2 / 3f -> true
+                        event.point.x <= width / 3f -> false
+                        else -> return false
+                    }
+                return navigatorReady && turnPage(navigator, right != rtl(navigator), opensChrome = !inSystemGestureEdge(event.point.y))
+            }
+
+            override fun onKey(event: InputKeyEvent): Boolean {
+                if (event.type != InputKeyEvent.Type.Down || event.modifiers.isNotEmpty()) return false
+                val forward =
+                    when (event.key) {
+                        Key.ArrowUp -> false
+                        Key.ArrowDown, Key.Space -> true
+                        Key.ArrowLeft -> rtl(navigator)
+                        Key.ArrowRight -> !rtl(navigator)
+                        else -> return false
+                    }
+                return navigatorReady && turnPage(navigator, forward)
+            }
+        }
+
+    private suspend fun onLocator(
+        navigator: EpubNavigatorFragment,
+        current: Locator,
+    ) {
+        // Mid-turn, Readium is already on the target page while the user still sees the old one: onTurnSettled reports it.
+        if (curl.turning) return
+        val settled = current == handledOnSettle
+        handledOnSettle = null
+        if (settled) return
+        showLocator(navigator, current)
+        repicture() // a jump from the table of contents, a bookmark, a search, or a turn without the curl
     }
 
     /** The status line, reading pace, position sync and scrolled page span all follow the locator from here. */
