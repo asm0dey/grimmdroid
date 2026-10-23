@@ -116,13 +116,21 @@ class TurnOverlayTest {
     fun verticalMovePassesThrough() {
         send(MotionEvent.ACTION_DOWN, x0, y0)
         send(MotionEvent.ACTION_MOVE, x0, y0 - 3 * slop)
-        send(MotionEvent.ACTION_MOVE, x0 - slop, y0 - 6 * slop) // drifting sideways, still vertical
-        send(MotionEvent.ACTION_UP, x0 - slop, y0 - 6 * slop)
+        send(MotionEvent.ACTION_MOVE, x0 - slop / 2, y0 - 6 * slop) // drifting sideways, within the slop
+        send(MotionEvent.ACTION_UP, x0 - slop / 2, y0 - 6 * slop)
         assertEquals(
             listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP),
             received,
         )
         assertFalse(overlay.turning)
+    }
+
+    @Test
+    fun diagonalMoveTakesOver() {
+        send(MotionEvent.ACTION_DOWN, x0, y0)
+        send(MotionEvent.ACTION_MOVE, x0 - 3 * slop, y0 + 3 * slop) // as much down as left: still a turn
+        assertEquals(listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_CANCEL), received)
+        assertTrue(overlay.turning)
     }
 
     @Test
