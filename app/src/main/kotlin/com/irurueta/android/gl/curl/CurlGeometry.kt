@@ -74,5 +74,20 @@ internal object CurlGeometry {
         return Release(completed, if (foldOnLeft) pageLeft - (pageRight - pageLeft) else pageRight)
     }
 
+    /** Where [autoTurnPoint]'s path starts, as a fraction of the way from the anchor to the end. */
+    const val AUTO_TURN_START = 0.015f
+
+    /**
+     * autoTurn's pretend finger at eased progress [e] (0..1), in view pixels. x and y run on the
+     * same progress: x from a small step off the anchor ([anchorX], [anchorY]) to [endX], y out
+     * towards [peakY] and back, `sin(PI * g)`. So the drag leans diagonally from the first frame
+     * (the fold cuts the corner) and ends level with the anchor, on the completed position.
+     */
+    fun autoTurnPoint(e: Float, anchorX: Float, anchorY: Float, endX: Float, peakY: Float): Pair<Float, Float> {
+        if (e >= 1f) return endX to anchorY
+        val g = AUTO_TURN_START + (1f - AUTO_TURN_START) * e
+        return (anchorX + (endX - anchorX) * g) to (anchorY + (peakY - anchorY) * sin(PI * g).toFloat())
+    }
+
     private fun clampRadius(radius: Double, foldX: Float, pageLeft: Float) = max(min((foldX - pageLeft).toDouble(), radius), 0.0)
 }

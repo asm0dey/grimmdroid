@@ -22,6 +22,7 @@ import io.kotest.matchers.doubles.shouldBeLessThanOrEqual
 import io.kotest.matchers.floats.plusOrMinus
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import kotlin.math.abs
 import kotlin.math.sign
 
 class CurlGeometrySpec :
@@ -84,5 +85,39 @@ class CurlGeometrySpec :
         }
         test("finishProgress clamps past the end") {
             CurlGeometry.finishProgress(300_000_000, 150) shouldBe 1f
+        }
+
+        // A phone page in view pixels: anchor on the right edge low down, the arc peaks higher up.
+        val w = 1080f
+        val ax = w
+        val ay = 2112f
+        val endX = -w
+        val peakY = 1728f
+
+        fun point(e: Float) = CurlGeometry.autoTurnPoint(e, ax, ay, endX, peakY)
+
+        test("autoTurnPoint starts a small diagonal step off the anchor") {
+            val (x, y) = point(0f)
+            x shouldBe (ax + (endX - ax) * CurlGeometry.AUTO_TURN_START plusOrMinus 1e-3f)
+            (x < ax) shouldBe true
+            (y < ay) shouldBe true
+        }
+
+        test("autoTurnPoint ends on the completed position, level with the anchor") {
+            point(1f) shouldBe (endX to ay)
+        }
+
+        test("autoTurnPoint x is monotonic") {
+            val xs = (0..100).map { point(it / 100f).first }
+            xs.zipWithNext().forEach { (a, b) -> (b < a) shouldBe true }
+        }
+
+        test("autoTurnPoint early frames drag diagonally, not horizontally") {
+            // The fold is perpendicular to anchor -> finger: a horizontal drag is a full-height fold.
+            for (i in 0..10) {
+                val (x, y) = point(i / 100f)
+                val slope = abs(y - ay) / abs(x - ax)
+                (slope > 0.36f) shouldBe true // steeper than 20 degrees
+            }
         }
     })

@@ -699,10 +699,11 @@ class CurlTextureView @JvmOverloads constructor(
 
     /**
      * grimmdroid: a turn that plays by itself, without synthetic touch events: a pretend finger
-     * moves over [durationMs], accelerate-decelerate: x forward from 97 % to -100 % of the width,
-     * backward from -90 % to 100 %; y arcs from its start (forward 88 %, backward 72 % of the
-     * height) towards the other value (72 % / 88 %) and back, `y0 + (y1 - y0) * sin(PI * v)`,
-     * so the fold leans mid-turn and lands level. The x ends are the completed release targets
+     * moves over [durationMs], accelerate-decelerate, along [CurlGeometry.autoTurnPoint]: x forward
+     * from the right edge to -100 % of the width, backward from -100 % to 100 %; y arcs from the
+     * anchor (forward 88 %, backward 72 % of the height) towards the other value (72 % / 88 %)
+     * and back, on the same eased progress as x, so the drag is diagonal from the first frame (a
+     * corner peel, never a full-height fold) and lands level. The x ends are the completed release targets
      * (fold on the left edge, fold on the right edge) and y ends at the drag's anchor, so the last
      * frame already is the finished state: the turn completes at once where the path ends (no
      * release tail) and is reported to [turnListener] as `true`.
@@ -721,23 +722,27 @@ class CurlTextureView @JvmOverloads constructor(
         }
         val w = width.toFloat()
         val h = height.toFloat()
-        val x0 = if (forward) w * 0.97f else -w * 0.9f
+        // The drag's anchor: forward the right edge (updateFirstCurlPos snaps there anyway).
+        val x0 = if (forward) curlRenderer.inverseTranslateX(rect.right) else -w
         // The completed targets of CurlGeometry.release, in view pixels.
         val x1 = curlRenderer.inverseTranslateX(if (forward) rect.left - rect.width() else rect.right)
         val y0 = if (forward) h * 0.88f else h * 0.72f
         val y1 = if (forward) h * 0.72f else h * 0.88f
 
+        // Finger on the anchor: no fold yet (flat), then straight to the path's diagonal start.
         updateFirstCurlPos(x0, y0)
         if (curlState != (if (forward) CURL_RIGHT else CURL_LEFT)) {
             reportTurn(false)
             return
         }
+        val (sx, sy) = CurlGeometry.autoTurnPoint(0f, x0, y0, x1, y1)
+        updateCurlPos(sx, sy)
 
         val curlAnimator = ValueAnimator.ofFloat(0.0f, 1.0f)
         this.curlAnimator = curlAnimator
         curlAnimator.addUpdateListener { animator ->
-            val v = animator.animatedValue as Float
-            updateCurlPos(x0 + (x1 - x0) * v, y0 + (y1 - y0) * sin(Math.PI * v).toFloat())
+            val (x, y) = CurlGeometry.autoTurnPoint(animator.animatedValue as Float, x0, y0, x1, y1)
+            updateCurlPos(x, y)
         }
         curlAnimator.duration = durationMs.toLong()
         curlAnimator.interpolator = AccelerateDecelerateInterpolator()
