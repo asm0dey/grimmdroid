@@ -73,7 +73,8 @@ enum class TurnResult {
  *
  * Touch: events go to [content] until a move is clearly horizontal (beyond touch slop, more
  * horizontal than vertical, [curlActive], not [selecting]); then [content] gets ACTION_CANCEL and
- * the curl gets the drag, left = forward. A gesture that starts while a turn runs is swallowed.
+ * the curl gets the drag, left = forward. A gesture that went vertical first is taken over later,
+ * once it is twice the slop sideways and more sideways than down, so it never becomes Readium's slide. A gesture that starts while a turn runs is swallowed.
  */
 @SuppressLint("ViewConstructor")
 class TurnOverlay(
@@ -138,7 +139,8 @@ class TurnOverlay(
     private enum class Touch { PASS, DRAG, SWALLOW }
 
     private var touch = Touch.PASS
-    private var navigatorOwns = false // the navigator keeps this gesture (it went vertical first, or no curl)
+    private var navigatorOwns = false // the navigator keeps this gesture: no turn could start
+    private var wentVertical = false // this gesture went vertical first: a takeover needs a clear horizontal lead
     private var downX = 0f
     private var downY = 0f
     private var lastX = 0f
@@ -220,6 +222,7 @@ class TurnOverlay(
             if (fingerDown && flick == null) sendToCurl(MotionEvent.ACTION_CANCEL, lastX, lastY)
             touch = if (turning) Touch.SWALLOW else Touch.PASS
             navigatorOwns = false
+            wentVertical = false
             downX = ev.x
             downY = ev.y
             velocity?.recycle()
@@ -255,8 +258,10 @@ class TurnOverlay(
     private fun takesOver(ev: MotionEvent): Boolean {
         val dx = abs(ev.x - downX)
         val dy = abs(ev.y - downY)
-        if (dy > slop && dy >= dx) navigatorOwns = true
-        return !navigatorOwns && ev.pointerCount == 1 && dx > slop && dx > dy && curlActive() && !selecting()
+        if (dy > slop && dy >= dx) wentVertical = true
+        // Never leave a horizontal move to the navigator with the curl on: Readium would slide the page.
+        val needed = if (wentVertical) 2 * slop else slop
+        return !navigatorOwns && ev.pointerCount == 1 && dx > needed && dx > dy && curlActive() && !selecting()
     }
 
     /** False when no turn can start: the navigator keeps the gesture. */

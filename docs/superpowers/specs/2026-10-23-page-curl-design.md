@@ -184,6 +184,10 @@ touch slop and more horizontal than vertical): it sends `ACTION_CANCEL` to
 the navigator, then drives the curl. Readium's own pager swipe threshold is
 `scaledPagingTouchSlop`, larger than the overlay's `scaledTouchSlop`, so
 Readium never starts its own swipe. No drag takeover while text is selected.
+A gesture that went vertical first stays with the navigator until it is
+clearly horizontal (beyond twice the touch slop and more horizontal than
+vertical overall); then the overlay takes it over the same way, so it never
+turns into Readium's own page slide.
 
 ### Edge taps and volume keys
 

@@ -116,13 +116,23 @@ class TurnOverlayTest {
     fun verticalMovePassesThrough() {
         send(MotionEvent.ACTION_DOWN, x0, y0)
         send(MotionEvent.ACTION_MOVE, x0, y0 - 3 * slop)
-        send(MotionEvent.ACTION_MOVE, x0 - 8 * slop, y0 - 3 * slop) // horizontal overall now, but the gesture went vertical first
-        send(MotionEvent.ACTION_UP, x0 - 8 * slop, y0 - 3 * slop)
+        send(MotionEvent.ACTION_MOVE, x0 - slop, y0 - 6 * slop) // drifting sideways, still vertical
+        send(MotionEvent.ACTION_UP, x0 - slop, y0 - 6 * slop)
         assertEquals(
             listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP),
             received,
         )
         assertFalse(overlay.turning)
+    }
+
+    @Test
+    fun verticalThenFarHorizontalCurlsInsteadOfSliding() {
+        send(MotionEvent.ACTION_DOWN, x0, y0)
+        send(MotionEvent.ACTION_MOVE, x0, y0 + 3 * slop) // down first: the navigator has it
+        send(MotionEvent.ACTION_MOVE, x0 - 8 * slop, y0 + 3 * slop) // then clearly left
+        send(MotionEvent.ACTION_MOVE, x0 - 9 * slop, y0 + 3 * slop)
+        assertEquals(listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_CANCEL), received)
+        assertTrue(overlay.turning)
     }
 
     @Test
