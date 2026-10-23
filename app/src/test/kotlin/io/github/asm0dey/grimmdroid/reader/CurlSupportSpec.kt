@@ -45,4 +45,21 @@ class CurlSupportSpec :
         test("unknown columns do not curl") {
             curlSupported(scroll = false, rtl = false, verticalText = false, columns = 0) shouldBe false
         }
+
+        test("no script result means unknown columns") {
+            parseColumns(null) shouldBe 0
+        }
+
+        test("the script's column count, as WebView's JSON string or bare") {
+            parseColumns("\"1\"") shouldBe 1
+            parseColumns("\"2\"") shouldBe 2
+            parseColumns("2") shouldBe 2
+        }
+
+        test("anything unparseable means unknown columns") {
+            parseColumns("\"auto\"") shouldBe 0
+            parseColumns("null") shouldBe 0
+            parseColumns("\"0\"") shouldBe 0
+            parseColumns("garbage") shouldBe 0
+        }
     })

@@ -176,6 +176,10 @@ class ReaderActivity : FragmentActivity() {
     // The locator the settle handled; its late delivery to the collector is not a second visit.
     private var handledOnSettle: Locator? = null
 
+    // A curl turn from an edge tap that found no page: like Readium's own turn there, the tap toggles the chrome.
+    private var tapOpensChrome = false
+    private var hitBookEdge = false
+
     private val systemDark get() =
         resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
@@ -300,7 +304,7 @@ class ReaderActivity : FragmentActivity() {
                 lifecycleScope,
                 jump = ::jump,
                 awaitPainted = ::awaitPainted,
-                onSettled = { onTurnSettled() },
+                onSettled = ::onTurnSettled,
                 curlActive = ::curlActive,
                 selecting = { selecting },
             )
@@ -356,6 +360,7 @@ class ReaderActivity : FragmentActivity() {
 
     /** A new navigator at the view model's place (the one recorded last, else the saved one, else the start). */
     private fun restartNavigator(pub: Publication) {
+        curl.abort() // the turn's navigator is going away
         supportFragmentManager.fragmentFactory = navigatorFactory(pub, vm.navigatorStart(pub))
         supportFragmentManager.commit { replace(R.id.reader_navigator, EpubNavigatorFragment::class.java, null) }
     }
@@ -409,7 +414,7 @@ class ReaderActivity : FragmentActivity() {
                             event.point.x <= width / 3f -> false
                             else -> return false
                         }
-                    return navigatorReady && turnPage(navigator, right != rtl(navigator))
+                    return navigatorReady && turnPage(navigator, right != rtl(navigator), opensChrome = !inSystemGestureEdge(event.point.y))
                 }
 
                 override fun onKey(event: InputKeyEvent): Boolean {
@@ -486,9 +491,12 @@ class ReaderActivity : FragmentActivity() {
      * Readium; it counts as a visit only when it isn't the page shown before the turn. The overlay redraws its own
      * pictures after a settle.
      */
-    private fun onTurnSettled() {
+    private fun onTurnSettled(turned: Boolean) {
         pendingPage?.let { page = it }
         pendingPage = null
+        if (!turned && hitBookEdge && tapOpensChrome) toggleChrome()
+        tapOpensChrome = false
+        hitBookEdge = false
         val navigator = navigator ?: return
         val now = navigator.currentLocator.value
         if (now == locator) return
@@ -508,7 +516,10 @@ class ReaderActivity : FragmentActivity() {
     private suspend fun jump(forward: Boolean): Boolean {
         val navigator = navigator ?: return false
         val before = navigator.currentLocator.value
-        if (!(if (forward) navigator.goForward(false) else navigator.goBackward(false))) return false
+        if (!(if (forward) navigator.goForward(false) else navigator.goBackward(false))) {
+            hitBookEdge = true
+            return false
+        }
         withTimeoutOrNull(1500) { navigator.currentLocator.first { it != before } }
         return true
     }
@@ -543,7 +554,7 @@ class ReaderActivity : FragmentActivity() {
             lifecycleScope.launch {
                 awaitFrame() // let the navigator lay out and queue its own scripts first
                 val navigator = navigator ?: return@launch
-                columns = if (navigator.evaluateJavascript(COLUMNS_JS)?.trim('"') == "2") 2 else 1
+                columns = parseColumns(navigator.evaluateJavascript(COLUMNS_JS))
                 if (!curlActive()) return@launch
                 withTimeoutOrNull(1500) { awaitPainted() }
                 curl.refreshPictures()
@@ -552,7 +563,7 @@ class ReaderActivity : FragmentActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        repicture()
+        if (::curl.isInitialized) repicture()
     }
 
     override fun onActionModeStarted(mode: ActionMode?) {
@@ -724,9 +735,26 @@ class ReaderActivity : FragmentActivity() {
     private fun turnPage(
         navigator: EpubNavigatorFragment,
         forward: Boolean,
+        opensChrome: Boolean = false,
     ): Boolean {
         if (curl.turning) return true // a held key, or a tap during a turn, turns once
-        if (curlActive() && curl.turn(forward) != TurnResult.UNSUPPORTED) return true
+        if (curlActive()) {
+            when (curl.turn(forward)) {
+                TurnResult.STARTED -> {
+                    tapOpensChrome = opensChrome
+                    hitBookEdge = false
+                    return true
+                }
+
+                TurnResult.BUSY -> {
+                    return true
+                }
+
+                TurnResult.UNSUPPORTED -> {
+                    Unit
+                }
+            }
+        }
         val animated = pageTurn != PageTurn.NONE // Curl falls back to Slide
 
         fun go() = if (forward) navigator.goForward(animated) else navigator.goBackward(animated)
@@ -765,8 +793,13 @@ class ReaderActivity : FragmentActivity() {
         private const val EXTRA_BOOK_ID = "bookId"
         private const val EXTRA_FILE = "file"
 
-        // Readium CSS sets the column count on the root element; "2" when two columns show.
-        private const val COLUMNS_JS = "getComputedStyle(document.documentElement).columnCount"
+        // Columns on screen. Readium CSS may leave column-count auto and lay out by column-width: then the count is
+        // CSS multicol's own, max(1, floor((width + gap) / (column-width + gap))); no column-width means one column.
+        private const val COLUMNS_JS =
+            "(() => { const cs = getComputedStyle(document.documentElement);" +
+                " if (cs.columnCount !== 'auto') return cs.columnCount;" +
+                " const w = parseFloat(cs.columnWidth), g = parseFloat(cs.columnGap) || 0;" +
+                " return String(w > 0 ? Math.max(1, Math.floor((innerWidth + g) / (w + g))) : 1) })()"
 
         // What the picker offers; Fonts.import still checks the file's signature.
         private val FONT_TYPES =
@@ -792,6 +825,13 @@ internal fun curlSupported(
     verticalText: Boolean,
     columns: Int,
 ): Boolean = !scroll && !rtl && !verticalText && columns == 1
+
+/** The column count the reader's columns script returned (a JSON string from the WebView); 0 when unknown. */
+internal fun parseColumns(result: String?): Int =
+    result
+        ?.trim('"')
+        ?.toIntOrNull()
+        ?.takeIf { it > 0 } ?: 0
 
 private val EXTERNAL_SCHEMES = setOf("http", "https", "mailto")
 
