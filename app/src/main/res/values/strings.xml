@@ -218,6 +218,7 @@
     <string name="reader_decrease">Decrease %1$s</string>
     <string name="reader_increase">Increase %1$s</string>
     <string name="footnote">Footnote</string>
+    <string name="picture_flick_hint">Drag down to close</string>
     <plurals name="read_of_total">
         <item quantity="one">%1$d of %2$d read</item>
         <item quantity="other">%1$d of %2$d read</item>
