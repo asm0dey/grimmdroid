@@ -25,7 +25,9 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.ActionMode
+import android.view.GestureDetector
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.webkit.WebView
@@ -94,6 +96,7 @@ import org.readium.r2.shared.publication.html.cssSelector
 import org.readium.r2.shared.publication.services.locateProgression
 import org.readium.r2.shared.publication.services.positionsByReadingOrder
 import org.readium.r2.shared.util.AbsoluteUrl
+import org.readium.r2.shared.util.use
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
@@ -162,6 +165,17 @@ class ReaderActivity : FragmentActivity() {
     private var settings by mutableStateOf(ReaderSettings())
     private var settingsOpen by mutableStateOf(false)
     private var footnote by mutableStateOf<String?>(null)
+    private var picture by mutableStateOf<Picture?>(null)
+
+    // Watches the reader's touches without taking them: a long press on a picture opens it full screen.
+    private val longPress by lazy {
+        GestureDetector(
+            this,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onLongPress(e: MotionEvent) = openPicture(e)
+            },
+        )
+    }
     private lateinit var navigatorContainer: FragmentContainerView
     private lateinit var curl: TurnOverlay
 
@@ -572,6 +586,27 @@ class ReaderActivity : FragmentActivity() {
         if (::curl.isInitialized) repicture()
     }
 
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (::curl.isInitialized) longPress.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
+    /** Opens the book's picture under a long press [e], if there is one and nothing else covers the page. */
+    private fun openPicture(e: MotionEvent) {
+        if (chromeVisible || settingsOpen || footnote != null || selecting || curl.turning) return
+        val pub = publication ?: return
+        val web = visibleWebView(navigatorContainer) ?: return
+        val at = IntArray(2).also(web::getLocationInWindow)
+        val js = pictureAtJs((e.x - at[0]) / web.width, (e.y - at[1]) / web.height)
+        web.evaluateJavascript(js) { result ->
+            val (href, alt) = parsePictureHit(result) ?: return@evaluateJavascript
+            lifecycleScope.launch {
+                val bytes = withContext(Dispatchers.IO) { pub.get(href)?.use { it.read().getOrNull() } } ?: return@launch
+                picture = Picture(bytes, alt)
+            }
+        }
+    }
+
     override fun onActionModeStarted(mode: ActionMode?) {
         super.onActionModeStarted(mode)
         selecting = true
@@ -687,6 +722,7 @@ class ReaderActivity : FragmentActivity() {
                 )
             }
             footnote?.let { FootnotePopup(it) { footnote = null } }
+            picture?.let { PictureViewer(it) { picture = null } }
         }
     }
 

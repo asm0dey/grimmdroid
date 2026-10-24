@@ -26,6 +26,7 @@ browser = "1.10.0"
 lifecycle = "2.11.0"
 coroutines = "1.11.0"
 coil = "3.6.3"
+telephoto = "0.16.0"
 readium = "3.4.0"
 fragment = "1.9.1"
 jsoup = "1.23.2"
@@ -73,6 +74,8 @@ androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.r
 androidx-paging-compose = { module = "androidx.paging:paging-compose", version.ref = "paging" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network-ktor3 = { module = "io.coil-kt.coil3:coil-network-ktor3", version.ref = "coil" }
+telephoto-zoomable-image-coil3 = { module = "me.saket.telephoto:zoomable-image-coil3", version.ref = "telephoto" }
+telephoto-flick = { module = "me.saket.telephoto:flick", version.ref = "telephoto" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "work" }
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }

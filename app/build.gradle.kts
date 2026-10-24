@@ -119,6 +119,8 @@ dependencies {
     implementation(libs.androidx.paging.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.ktor3)
+    implementation(libs.telephoto.zoomable.image.coil3)
+    implementation(libs.telephoto.flick)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime.ktx)
