@@ -60,11 +60,19 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+        <!-- Not singleTask on MainActivity: relaunching from the icon would clear the open reader above it -->
+        <activity
+            android:name=".ExternalIntentActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <!-- EPUBs opened or shared from other apps: uploaded to the library, then read -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
