@@ -69,10 +69,14 @@ jobs:
           echo "$SIGNING_KEY" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "GRIMMDROID_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
       - run: bundle exec fastlane release
+      # Release assets are named grimmdroid-<tag>.<ext>; Gradle's outputs keep their default names.
+      - name: Name release assets
+        run: |
+          mkdir dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/grimmdroid-$GITHUB_REF_NAME.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "dist/grimmdroid-$GITHUB_REF_NAME.aab"
+          cp app/build/outputs/apks/release/app-release.apks "dist/grimmdroid-$GITHUB_REF_NAME.apks"
       - uses: softprops/action-gh-release@v3
         with:
-          files: |
-            app/build/outputs/apk/release/app-release.apk
-            app/build/outputs/bundle/release/app-release.aab
-            app/build/outputs/apks/release/app-release.apks
+          files: dist/*
           generate_release_notes: true
