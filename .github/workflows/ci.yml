@@ -37,7 +37,7 @@ jobs:
       # --skip-tools: otherwise mise installs every tool in mise.toml, android-sdk included.
       - run: mise run --skip-tools lint-ci
 
-  # A tag push publishes the signed APK as a GitHub release, once the test gate passes.
+  # A tag push publishes the signed APK, AAB and APK set as a GitHub release, once the test gate passes.
   release:
     if: startsWith(github.ref, 'refs/tags/')
     needs: test
@@ -74,4 +74,5 @@ jobs:
           files: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/apks/release/app-release.apks
           generate_release_notes: true

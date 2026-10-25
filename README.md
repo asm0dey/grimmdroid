@@ -37,6 +37,8 @@ to that path to avoid keeping two SDKs. CI uses the runner's preinstalled SDK in
 Release builds are signed from `GRIMMDROID_KEYSTORE`, `GRIMMDROID_KEYSTORE_PASSWORD`,
 `GRIMMDROID_KEY_ALIAS` and `GRIMMDROID_KEY_PASSWORD` (`bundle exec fastlane release`, or
 `./gradlew assembleRelease` with those variables set). Release builds are minified with R8.
+`fastlane release` also builds the AAB and, from it, an APK set (`./gradlew buildApksRelease`,
+`app/build/outputs/apks/release/app-release.apks`) for sideloading split APKs with `bundletool install-apks` or SAI.
 
 `./gradlew integrationTest` runs against a throwaway Grimmory from `integration/docker-compose.yml`.
 
