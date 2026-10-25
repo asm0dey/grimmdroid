@@ -96,7 +96,10 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+val bundletool by configurations.creating
+
 dependencies {
+    bundletool(libs.bundletool)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.activity.compose)
@@ -163,4 +166,32 @@ tasks.register<Test>("integrationTest") {
     systemProperty("grimmdroid.fixtures", rootProject.file("integration/fixtures").path)
     environment("GRIMMORY_URL", System.getenv("GRIMMORY_URL") ?: "http://localhost:6060")
     outputs.upToDateWhen { false }
+}
+
+// APK set (.apks) from the release AAB, for sideloading split APKs (bundletool install-apks, SAI). Same GRIMMDROID_*
+// signing as the release build.
+tasks.register<JavaExec>("buildApksRelease") {
+    description = "Builds a signed app-release.apks from the release bundle."
+    group = "build"
+    dependsOn("bundleRelease")
+    classpath = bundletool
+    mainClass = "com.android.tools.build.bundletool.BundleToolMain"
+    val aab = layout.buildDirectory.file("outputs/bundle/release/app-release.aab")
+    val apks = layout.buildDirectory.file("outputs/apks/release/app-release.apks")
+    // The Maven artifact, unlike bundletool-all.jar, has no bundled aapt2: use the SDK's.
+    val aapt2 = androidComponents.sdkComponents.sdkDirectory.map { it.file("build-tools/${android.buildToolsVersion}/aapt2") }
+    outputs.file(apks)
+    doFirst {
+        args(
+            "build-apks",
+            "--overwrite",
+            "--bundle=${aab.get().asFile}",
+            "--output=${apks.get().asFile}",
+            "--aapt2=${aapt2.get().asFile}",
+            "--ks=${System.getenv("GRIMMDROID_KEYSTORE")}",
+            "--ks-pass=pass:${System.getenv("GRIMMDROID_KEYSTORE_PASSWORD")}",
+            "--ks-key-alias=${System.getenv("GRIMMDROID_KEY_ALIAS")}",
+            "--key-pass=pass:${System.getenv("GRIMMDROID_KEY_PASSWORD")}",
+        )
+    }
 }

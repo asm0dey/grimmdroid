@@ -32,8 +32,10 @@ fragment = "1.9.1"
 jsoup = "1.23.2"
 desugarJdkLibs = "2.1.5"
 glUtils = "1.1.11"
+bundletool = "1.18.3"
 
 [libraries]
+bundletool = { module = "com.android.tools.build:bundletool", version.ref = "bundletool" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentfile" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
