@@ -2,7 +2,7 @@
 # Up: docker compose -f integration/docker-compose.yml up -d --wait   Down: docker compose -f integration/docker-compose.yml down -v
 services:
   grimmory:
-    image: ghcr.io/grimmory-tools/grimmory:v3.5.0
+    image: ghcr.io/grimmory-tools/grimmory:v3.5.1
     environment:
       - USER_ID=1000
       - GROUP_ID=1000
@@ -29,7 +29,7 @@ services:
       start_interval: 2s
 
   mariadb:
-    image: lscr.io/linuxserver/mariadb:11.8.9
+    image: lscr.io/linuxserver/mariadb:11.8.10
     environment:
       - PUID=1000
       - PGID=1000
